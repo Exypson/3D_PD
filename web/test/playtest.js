@@ -61,7 +61,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
   const result = await page.evaluate(async () => {
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
-    let steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set();
+    let steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
     const seen = new Set();
     // nearest explored, walkable cell that borders unexplored space (closest to the goal), skipping cells that failed
     const frontier = (L, tx, ty) => {
@@ -83,6 +83,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (pd.V.busy || pd.V.needProcess) continue;
       h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
+      const k = L.visited.reduce((a, v) => a + v, 0); if (k > known){ known = k; bad.clear(); dry = false; } // new ground: retry blacklisted targets
       const vis = m => pd.V.fov[m.y*L.w + m.x];
       const boss = L.mobs.find(m => !m.dead && m.type === 'goo');
       const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && vis(m) && !bad.has(m.y*L.w + m.x) && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
@@ -98,7 +99,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
-      else pd.UI.cellClick(h.x, h.y); // nothing left to explore: search for secret doors
+      else { pd.UI.cellClick(h.x, h.y); if (!dry){ dry = true; console.log('[bot] nothing reachable to explore on floor ' + G.depth + ', searching'); } } // search for secret doors
       const pos = G.depth + ':' + h.time; // no game time passed = the click did nothing
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
       if (stuck && click) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
