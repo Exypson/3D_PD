@@ -71,7 +71,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
       const vis = m => pd.V.fov[m.y*L.w + m.x];
       const boss = L.mobs.find(m => !m.dead && m.type === 'goo');
-      const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && vis(m) && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
+      const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && vis(m) && !bad.has(m.y*L.w + m.x) && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
       const ex = L.exit % L.w, ey = (L.exit / L.w) | 0;
       if (G.depth === 5 && L.bossDefeated && h.x === ex && h.y === ey){
         pd.UI.cellClick(h.x, h.y); await wait(300);
@@ -90,7 +90,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (stuck === 3 && click) bad.add(click[1]*L.w + click[0]);
       if (stuck > 80){ // last resort, counted in the result: hop next to the exit
         hops++; h.x = ex; h.y = ey + (PASS.has(L.tiles[(ey+1)*L.w + ex]) ? 1 : -1); stuck = 0;
-        console.log('[bot] hop on floor ' + G.depth);
+        console.log('[bot] hop on floor ' + G.depth + ' clicking ' + JSON.stringify(click) + ' tile ' + (click ? L.tiles[click[1]*L.w + click[0]] : '-') + ' keys ' + JSON.stringify(h.keys) + ' log ' + JSON.stringify(pd.V.log.slice(-2).map(l => l.msg)));
       }
     }
     return { ok: false, why: 'step limit', depth: pd.G.depth, hops, seen: [...seen] };
