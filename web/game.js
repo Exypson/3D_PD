@@ -120,7 +120,7 @@ const MOBS = {
   necro:   { name:'Necromancer', hp:40, def:14, att:10, dmg:[1,4], dr:[0,5], exp:7, max:14, summoner:true, keepAway:3, loot:0.2, lootK:'potion:healing',
              model:{k:'humanoid', c:0x2d2238, c2:0x7a4ca8, head:0xcfc7b0, hood:0x1e1726, weapon:'staff', glow:0x9b6cff}, desc:'A robed spellcaster who raises skeletons to fight for it and keeps its distance.' },
   tengu:   { name:'Tengu', hp:160, def:15, att:20, dmg:[6,12], dr:[0,5], exp:20, max:30, boss:true,
-             model:{k:'humanoid', c:0x9c2f2f, c2:0x2a1a1a, head:0xd04040, mask:true, weapon:'dagger', scale:1.15}, desc:'A masked assassin who blinks away when wounded and peppers you with shuriken.' },
+             model:{k:'humanoid', c:0x3c434c, c2:0x23272d, head:0x14171b, hood:0x2b3038, visor:0x5ff0e0, collar:0x6a6f76, robe:true, weapon:'dagger', dual:true, scale:1.2}, desc:'A masked assassin who blinks away when wounded and peppers you with shuriken.' },
 
   bat:     { name:'Vampire Bat', hp:30, def:15, att:16, dmg:[5,18], dr:[0,4], exp:7, max:15, speed:2, flying:true, drain:true, loot:0.167, lootK:'potion:healing',
              model:{k:'bat', c:0x3a2a33, c2:0xff4444}, desc:'A large, fast bat that drinks blood to heal itself.' },
@@ -1630,7 +1630,7 @@ function dropItem(it){
 function changeLevel(dir, toDepth){
   if (dir === 'down' && G.depth >= DEMO_MAX_DEPTH){
     log('The stairs end in fresh rubble. The way deeper opens in the next update.', 'mag');
-    UI.toast('End of the demo', 'The Sewers are cleared');
+    UI.toast('End of the demo', REGIONS[regionOf(G.depth)].name + ' cleared');
     saveGame(); UI.update();
     return;
   }
@@ -2994,6 +2994,8 @@ const MDL = (() => {
     if (s.hat != null){ const cone = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.3, 4), mat(s.hat)); cone.rotation.y = Math.PI/4; cone.position.y = 0.36; head.add(cone); head.add(mesh(box(0.32, 0.03, 0.32), mat(s.hat), 0, 0.22, 0)); }
     if (s.crown){ const gm = mat(0xe0b040, { metal: 0.8, rough: 0.3, em: 0x402a00, ei: 0.4 }); head.add(mesh(box(0.25, 0.05, 0.25), gm, 0, 0.23, 0)); for (const [x,z] of [[-0.1,-0.1],[0.1,-0.1],[-0.1,0.1],[0.1,0.1],[0,0.12]]) head.add(mesh(box(0.04, 0.07, 0.04), gm, x, 0.28, z)); }
     if (s.horns != null){ const hm = mat(s.horns); const h1 = mesh(box(0.04, 0.14, 0.04), hm, -0.08, 0.27, 0); h1.rotation.z = 0.4; const h2 = mesh(box(0.04, 0.14, 0.04), hm, 0.08, 0.27, 0); h2.rotation.z = -0.4; head.add(h1, h2); }
+    if (s.visor != null) head.add(mesh(box(hs*0.75, 0.035, 0.02), mat(0x000000, { em: s.visor, ei: 2.2 }), 0, 0.12, hs/2 + 0.008));
+    if (s.collar != null) torso.add(mesh(box(0.32, 0.06, 0.21), mat(s.collar, { metal: 0.6, rough: 0.4 }), 0, 0.27, 0));
     if (s.mask){ head.add(mesh(box(hs+0.01, 0.15, 0.02), mat(0xd04040), 0, 0.11, hs/2+0.006)); eyes(head, 0.13, hs/2 + 0.02, 0.05, 0xffffff, 0.04); head.add(mesh(box(0.05, 0.05, 0.08), mat(0xd04040), 0, 0.08, hs/2+0.04)); }
     if (s.shield){ const sh = mesh(box(0.04, 0.22, 0.2), mat(s.shield, { metal: 0.5, rough: 0.5 }), -0.03, -0.14, 0.04); parts.armL.add(sh); sh.add(mesh(box(0.01, 0.06, 0.06), mat(0xe0b040, { metal:0.8, rough:0.3 }), -0.025, 0, 0)); }
     if (s.weapon){
@@ -3002,6 +3004,7 @@ const MDL = (() => {
       const grip = new THREE.Group(); grip.add(w); grip.rotation.order = 'YXZ'; grip.rotation.set(-Math.PI/2, -Math.PI/2, -Math.PI/4);
       const tilt = new THREE.Group(); tilt.add(grip); tilt.rotation.x = -0.5; tilt.position.set(0, 0, 0.02);
       parts.handR.add(tilt); parts.weapon = tilt;
+      if (s.dual){ const t2 = tilt.clone(); t2.scale.x = -1; parts.handL.add(t2); }
     }
     if (s.bowBack){ const b = heldItem('bow:bow', 0.03); b.position.set(0, 0.14, -0.12); b.rotation.z = 0.3; torso.add(b); }
     if (s.glow){ const orb = mesh(new THREE.SphereGeometry(0.045, 8, 6), mat(0x000000, { em: s.glow, ei: 2 }), 0, 0.02, 0.18); parts.handR.add(orb); }
@@ -4688,7 +4691,7 @@ const Sound = (() => {
 // ============================================================
 // SAVE / LOAD / RUNS
 // ============================================================
-const DEMO_MAX_DEPTH = 5; // demo ships region 1 only; raise as each 5-floor region passes testing
+const DEMO_MAX_DEPTH = 10; // demo ships region 1 only; raise as each 5-floor region passes testing
 const saveKey = () => 'pd3d_save_v1:' + Auth.user(), rankKey = () => 'pd3d_ranks_v1:' + Auth.user();
 const ARR_KEYS = ['tiles','visited','fire','toxic','para','frost','web'];
 function packLevel(Lv){

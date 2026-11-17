@@ -1,8 +1,9 @@
-// Headless playtest: accounts, per-user saves, and a bot run through floors 1-5.
-// Usage: serve web/ (e.g. `python3 -m http.server 8765` inside web/), then `node test/playtest.js [url]`.
+// Headless playtest: accounts, per-user saves, level generation, and a bot run from a start floor to DEMO_MAX_DEPTH.
+// Usage: serve web/ (e.g. `python3 -m http.server 8765` inside web/), then `node test/playtest.js [url] [startFloor]`.
 const { chromium } = require('playwright');
 const assert = require('assert');
 const URL = process.argv[2] || 'http://localhost:8765/';
+const FROM = Number(process.argv[3] || 1);
 
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
@@ -44,9 +45,10 @@ const URL = process.argv[2] || 'http://localhost:8765/';
   console.log('accounts: ok');
 
   // --- generator: exit reachable from entrance through walkable tiles only (no locked/secret doors) ---
-  const unreachable = await page.evaluate(() => {
+  const TO = await page.evaluate(() => DEMO_MAX_DEPTH);
+  const unreachable = await page.evaluate(TO => {
     let bad = 0;
-    for (let d = 1; d <= 4; d++) for (let i = 0; i < 100; i++){
+    for (let d = 1; d < TO; d++) for (let i = 0; i < (BOSS_DEPTHS[d] ? 0 : 60); i++){
       const L = generateLevel(d), seen = new Uint8Array(L.w*L.h), q = [L.entrance]; seen[L.entrance] = 1;
       while (q.length){ const c = q.pop(); for (const [dx,dy] of DIRS8){ const n = c + dx + dy*L.w;
         if (!seen[n] && TP.pass[L.tiles[n]] && diagOK(L, c % L.w, (c / L.w) | 0, n % L.w, (n / L.w) | 0)){ seen[n] = 1; q.push(n); } } }
@@ -55,13 +57,14 @@ const URL = process.argv[2] || 'http://localhost:8765/';
         if (!L.rooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)) bad++; }
     }
     return bad;
-  });
-  assert.strictEqual(unreachable, 0, 'every generated floor 1-4 has a walkable entrance-to-exit path and no corridor traps');
+  }, TO);
+  assert.strictEqual(unreachable, 0, 'every generated non-boss floor has a walkable entrance-to-exit path and no corridor traps');
   console.log('generator: ok');
 
-  // --- bot run, floors 1-5 (hero made unkillable) ---
-  const result = await page.evaluate(async () => {
+  // --- bot run, FROM to TO (hero made unkillable) ---
+  const result = await page.evaluate(async ([FROM, TO]) => {
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
+    if (FROM > 1){ pd.changeLevel('down', FROM); while (pd.G.depth !== FROM || pd.V.busy) await wait(50); }
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
     let steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
     const seen = new Set();
@@ -77,7 +80,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       }
       return best;
     };
-    while (steps++ < 6000){
+    while (steps++ < 2500 * (TO - FROM + 1)){
       await wait(15);
       const G = pd.G, L = pd.L, h = G.hero;
       if (G.over) return { ok: false, why: 'died: ' + G.deathCause, depth: G.depth };
@@ -87,17 +90,17 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
       const k = L.visited.reduce((a, v) => a + v, 0); if (k > known){ known = k; bad.clear(); dry = false; } // new ground: retry blacklisted targets
       const vis = m => pd.V.fov[m.y*L.w + m.x];
-      const boss = L.mobs.find(m => !m.dead && m.type === 'goo');
+      const boss = L.mobs.find(m => !m.dead && MOBS[m.type].boss);
       const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && vis(m) && !bad.has(m.y*L.w + m.x) && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
       const ex = L.exit % L.w, ey = (L.exit / L.w) | 0;
-      if (G.depth === 5 && L.bossDefeated && h.x === ex && h.y === ey){
+      if (G.depth === TO && L.bossDefeated && h.x === ex && h.y === ey){
         pd.UI.cellClick(h.x, h.y); await wait(300);
-        return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
+        return { ok: pd.G.depth === TO, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
       }
       const goal = boss || { x: ex, y: ey };
       let click;
       if (foe) click = [foe.x, foe.y];
-      else if (boss && vis(boss)) click = [boss.x, boss.y];
+      else if (boss && vis(boss) && !bad.has(boss.y*L.w + boss.x)) click = [boss.x, boss.y];
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
@@ -115,10 +118,10 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       }
     }
     return { ok: false, why: 'step limit', depth: pd.G.depth, hops, seen: [...seen] };
-  });
+  }, [FROM, TO]);
   console.log('bot:', JSON.stringify(result));
   await page.screenshot({ path: 'test/last-run.png' });
-  assert(result.ok && result.boss, 'bot reached the floor-5 gate after the boss: ' + JSON.stringify(result));
+  assert(result.ok && result.boss, 'bot beat floor ' + TO + '\'s boss and hit the demo gate: ' + JSON.stringify(result));
   assert.strictEqual(result.hops, 0, 'bot never needed the teleport fallback');
   assert.deepStrictEqual(errors, [], 'no console errors');
   console.log('playtest: ok');
