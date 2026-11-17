@@ -51,10 +51,12 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       while (q.length){ const c = q.pop(); for (const [dx,dy] of DIRS8){ const n = c + dx + dy*L.w;
         if (!seen[n] && TP.pass[L.tiles[n]] && diagOK(L, c % L.w, (c / L.w) | 0, n % L.w, (n / L.w) | 0)){ seen[n] = 1; q.push(n); } } }
       if (!seen[L.exit]) bad++;
+      for (const c in L.traps){ const x = c % L.w, y = (c / L.w) | 0; // traps only inside rooms, never corridors
+        if (!L.rooms.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)) bad++; }
     }
     return bad;
   });
-  assert.strictEqual(unreachable, 0, 'every generated floor 1-4 has a walkable entrance-to-exit path');
+  assert.strictEqual(unreachable, 0, 'every generated floor 1-4 has a walkable entrance-to-exit path and no corridor traps');
   console.log('generator: ok');
 
   // --- bot run, floors 1-5 (hero made unkillable) ---

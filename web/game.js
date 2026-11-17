@@ -453,7 +453,7 @@ function genRegular(depth){
   for (let i = 0, tries = 0; i < nTraps && tries < 200; tries++){
     const c = R.int(W*H); const x = c % W, y = (c / W) | 0;
     if (t[c] !== T.FLOOR && t[c] !== T.GRASS) continue;
-    if (inside[c] >= 0 && ['shop','vault','entrance'].includes(rooms[inside[c]].type)) continue;
+    if (inside[c] < 0 || ['shop','vault','entrance'].includes(rooms[inside[c]].type)) continue; // rooms only, never corridors (as in RegularPainter.paintTraps)
     if (cheb(x, y, L.entrance % W, (L.entrance/W)|0) < 3 || cheb(x,y, L.exit % W, (L.exit/W)|0) < 2) continue;
     if (L.traps[c]) continue;
     L.traps[c] = { t: R.pick(pool), hidden: depth > 1 ? R.chance(0.7) : R.chance(0.4), active: true };
