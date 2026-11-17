@@ -63,7 +63,12 @@ const URL = process.argv[2] || 'http://localhost:8765/';
         pd.UI.cellClick(h.x, h.y); await wait(300);
         return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, seen: [...seen] };
       }
-      if (target) pd.UI.cellClick(target.x, target.y);
+      if (target && !pd.V.fov[target.y*L.w + target.x]){ // unseen boss: walk to a free tile beside it
+        const near = [[0,2],[2,0],[-2,0],[0,-2],[0,1],[1,0],[-1,0],[0,-1]].map(([dx,dy]) => [target.x+dx, target.y+dy])
+          .find(([x,y]) => [2,3,8,9,10].includes(L.tiles[y*L.w + x]));
+        pd.UI.cellClick(near ? near[0] : target.x, near ? near[1] : target.y);
+      }
+      else if (target) pd.UI.cellClick(target.x, target.y);
       else pd.UI.cellClick(L.exit % L.w, (L.exit / L.w) | 0);
       const pos = G.depth + ':' + h.x + ',' + h.y;
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
