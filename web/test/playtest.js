@@ -92,16 +92,16 @@ const URL = process.argv[2] || 'http://localhost:8765/';
         return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
       }
       const goal = boss || { x: ex, y: ey };
-      let click, explore = false;
+      let click;
       if (foe) click = [foe.x, foe.y];
       else if (boss && vis(boss)) click = [boss.x, boss.y];
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
-      else { const f = frontier(L, goal.x, goal.y); if (f >= 0){ click = [f % L.w, (f / L.w) | 0]; explore = true; } }
+      else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
       else pd.UI.cellClick(h.x, h.y); // nothing left to explore: search for secret doors
       const pos = G.depth + ':' + h.time; // no game time passed = the click did nothing
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
-      if (stuck && explore) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
+      if (stuck && click) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
       if (stuck > 80){ // last resort, counted in the result: hop next to the exit
         hops++; h.x = ex; h.y = ey + (PASS.has(L.tiles[(ey+1)*L.w + ex]) ? 1 : -1); stuck = 0;
         console.log('[bot] hop on floor ' + G.depth + ' clicking ' + JSON.stringify(click) + ' tile ' + (click ? L.tiles[click[1]*L.w + click[0]] : '-') + ' keys ' + JSON.stringify(h.keys) + ' log ' + JSON.stringify(pd.V.log.slice(-2).map(l => l.msg)));
