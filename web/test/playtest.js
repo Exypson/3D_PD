@@ -107,6 +107,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
+      else if (bad.size) bad.clear(); // retry once: a blacklisted cell may have been blocked only by a monster that has since moved
       else { pd.UI.cellClick(h.x, h.y); if (!dry){ dry = true;
           let map = '';
           for (let y = 0; y < L.h; y++){ let r = ''; for (let x = 0; x < L.w; x++){ const c = y*L.w + x, t = L.tiles[c];
