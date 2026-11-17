@@ -99,7 +99,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0){ click = [f % L.w, (f / L.w) | 0]; explore = true; } }
       if (click) pd.UI.cellClick(click[0], click[1]);
       else pd.UI.cellClick(h.x, h.y); // nothing left to explore: search for secret doors
-      const pos = G.depth + ':' + h.x + ',' + h.y;
+      const pos = G.depth + ':' + h.time; // no game time passed = the click did nothing
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
       if (stuck && explore) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
       if (stuck > 80){ // last resort, counted in the result: hop next to the exit
@@ -112,6 +112,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
   console.log('bot:', JSON.stringify(result));
   await page.screenshot({ path: 'test/last-run.png' });
   assert(result.ok && result.boss, 'bot reached the floor-5 gate after the boss: ' + JSON.stringify(result));
+  assert.strictEqual(result.hops, 0, 'bot never needed the teleport fallback');
   assert.deepStrictEqual(errors, [], 'no console errors');
   console.log('playtest: ok');
   await browser.close();
