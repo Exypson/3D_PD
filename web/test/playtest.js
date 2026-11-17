@@ -140,10 +140,11 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       for (const t of Object.keys(WANDS)){ const w = mkWand(t, 2); h.inv.push(w); clearMobs(); const m = spawn('gnoll', 2), c0 = w.ch;
         await doAct(() => zapWand(w, m.x, m.y)); clearBlobs();
         check('wand: zap ' + t, w.ch === c0 - 1, [c0, w.ch]); }
-      clearMobs();
+      clearMobs(); h.inv.length = 0; // the backpack holds 20 items; earlier checks filled it
       for (const t of Object.keys(RINGS)){ const r = mkRing(t, 1); h.inv.push(r);
         await doAct(() => heroEquip(r)); const on = isEquipped(r); await doAct(() => heroUnequip(r));
         check('ring: wear and remove ' + t, on && !isEquipped(r)); }
+      h.inv.length = 0;
       for (const t of Object.keys(WEAPONS)){ const w = mkWeapon(t, 0); h.inv.push(w); await doAct(() => heroEquip(w));
         const rat = spawn('rat'); await meleeUntil(rat, 40);
         check('weapon: equip and fight with ' + t, h.eq.weapon === w && gone(rat)); clearMobs(); }
