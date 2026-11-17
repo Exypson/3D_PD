@@ -46,8 +46,21 @@ const URL = process.argv[2] || 'http://localhost:8765/';
   // --- bot run, floors 1-5 (hero kept alive; this tests progression, not balance) ---
   const result = await page.evaluate(async () => {
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
-    let steps = 0, lastDepth = 0, stuck = 0, lastPos = '';
+    const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
+    let steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set();
     const seen = new Set();
+    // nearest explored, walkable cell that borders unexplored space (closest to the goal), skipping cells that failed
+    const frontier = (L, tx, ty) => {
+      let best = -1, bd = Infinity;
+      for (let c = 0; c < L.w*L.h; c++){
+        if (!L.visited[c] || !PASS.has(L.tiles[c]) || bad.has(c)) continue;
+        const x = c % L.w, y = (c / L.w) | 0;
+        if (![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => !L.visited[(y+dy)*L.w + x+dx])) continue;
+        const d = Math.abs(x-tx) + Math.abs(y-ty);
+        if (d < bd){ bd = d; best = c; }
+      }
+      return best;
+    };
     while (steps++ < 6000){
       await wait(15);
       const G = pd.G, L = pd.L, h = G.hero;
@@ -55,29 +68,32 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (!document.getElementById('modal').hidden) pd.UI.closeWindow();
       if (pd.V.busy || pd.V.needProcess) continue;
       h.hp = h.ht; h.hunger = 0;
-      if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
-      const boss = L.mobs.find(m => !m.dead && pd.V && m.type === 'goo');
-      const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && pd.V.fov[m.y*L.w + m.x] && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
-      const target = boss || foe;
-      if (G.depth === 5 && L.bossDefeated && h.x === L.exit % L.w && h.y === ((L.exit / L.w) | 0)){
+      if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
+      const vis = m => pd.V.fov[m.y*L.w + m.x];
+      const boss = L.mobs.find(m => !m.dead && m.type === 'goo');
+      const foe = L.mobs.find(m => !m.dead && !m.ally && !m.passive && m.type !== 'keeper' && vis(m) && Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) <= 6);
+      const ex = L.exit % L.w, ey = (L.exit / L.w) | 0;
+      if (G.depth === 5 && L.bossDefeated && h.x === ex && h.y === ey){
         pd.UI.cellClick(h.x, h.y); await wait(300);
-        return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, seen: [...seen] };
+        return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
       }
-      if (target && !pd.V.fov[target.y*L.w + target.x]){ // unseen boss: walk to a free tile beside it
-        const near = [[0,2],[2,0],[-2,0],[0,-2],[0,1],[1,0],[-1,0],[0,-1]].map(([dx,dy]) => [target.x+dx, target.y+dy])
-          .find(([x,y]) => [2,3,8,9,10].includes(L.tiles[y*L.w + x]));
-        pd.UI.cellClick(near ? near[0] : target.x, near ? near[1] : target.y);
-      }
-      else if (target) pd.UI.cellClick(target.x, target.y);
-      else pd.UI.cellClick(L.exit % L.w, (L.exit / L.w) | 0);
+      const goal = boss || { x: ex, y: ey };
+      let click;
+      if (foe) click = [foe.x, foe.y];
+      else if (boss && vis(boss)) click = [boss.x, boss.y];
+      else if (!boss && L.visited[L.exit]) click = [ex, ey];
+      else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
+      if (click) pd.UI.cellClick(click[0], click[1]);
+      else pd.UI.cellClick(h.x, h.y); // nothing left to explore: search for secret doors
       const pos = G.depth + ':' + h.x + ',' + h.y;
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
-      if (stuck > 60){ // e.g. locked door or unreachable target: hop next to the exit
-        const ex = L.exit % L.w, ey = (L.exit / L.w) | 0;
-        h.x = ex; h.y = ey + (L.tiles[(ey+1)*L.w + ex] === 2 ? 1 : -1); stuck = 0;
+      if (stuck === 3 && click) bad.add(click[1]*L.w + click[0]);
+      if (stuck > 80){ // last resort, counted in the result: hop next to the exit
+        hops++; h.x = ex; h.y = ey + (PASS.has(L.tiles[(ey+1)*L.w + ex]) ? 1 : -1); stuck = 0;
+        console.log('[bot] hop on floor ' + G.depth);
       }
     }
-    return { ok: false, why: 'step limit', depth: pd.G.depth, seen: [...seen] };
+    return { ok: false, why: 'step limit', depth: pd.G.depth, hops, seen: [...seen] };
   });
   console.log('bot:', JSON.stringify(result));
   await page.screenshot({ path: 'test/last-run.png' });
