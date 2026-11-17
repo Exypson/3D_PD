@@ -4510,7 +4510,7 @@ const UI = (() => {
       if (m.type === 'keeper'){ if (cheb(x, y, h.x, h.y) <= 1) openSell(); else walkTo(x, y, m); return; }
       if (!m.ally){ if (!tryAttack(m)) walkTo(x, y, m); return; }
     }
-    if (cheb(x, y, h.x, h.y) === 1 && !(m && !m.ally)){ act(() => heroMove(x - h.x, y - h.y)); return; }
+    if (cheb(x, y, h.x, h.y) === 1 && !(m && !m.ally) && (act(() => heroMove(x - h.x, y - h.y)) || x === h.x || y === h.y)) return; // a blocked diagonal step (e.g. into a doorway) falls through to pathing
     walkTo(x, y);
   }
   function attackNearest(){
