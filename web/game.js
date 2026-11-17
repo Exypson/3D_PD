@@ -107,7 +107,7 @@ const MOBS = {
   slime:   { name:'Caustic Slime', hp:20, def:5, att:12, dmg:[2,5], dr:[0,0], exp:4, max:9, slime:true, loot:0.2, lootK:'weapon',
              model:{k:'blob', c:0x77c043, c2:0xcef59a, scale:0.8}, desc:'A wobbling mass of ooze. Heavy blows lose much of their force inside its body.' },
   goo:     { name:'Goo', hp:100, def:8, att:10, dmg:[1,8], dr:[0,2], exp:10, max:30, boss:true,
-             model:{k:'blob', c:0x2c2c2c, c2:0xff5040, scale:1.5, glowEye:true}, desc:'A heaving mass of corrupted sludge. When it pumps itself up, step away before it bursts.' },
+             model:{k:'blob', c:0x3a5530, c2:0xff6a2a, scale:1.5, mound:true}, desc:'A heaving mass of corrupted sludge. When it pumps itself up, step away before it bursts.' },
 
   skeleton:{ name:'Skeleton', hp:25, def:9, att:12, dmg:[2,10], dr:[0,5], exp:5, max:10, explode:true, loot:0.167, lootK:'weapon',
              model:{k:'humanoid', c:0xe2dccb, c2:0xbdb5a0, head:0xefe9d8, bony:true, weapon:'sword'}, desc:'The animated bones of a long-dead prisoner. When destroyed, its bones burst outward.' },
@@ -3081,6 +3081,16 @@ const MDL = (() => {
   }
   function blob(s){
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+    if (s.mound){ // boss: a low, glossy sludge mound with ember pustules and a glowing maw
+      const m = mat(s.c, { em: 0x16260c, ei: 1 }), glow = mat(0x000000, { em: s.c2, ei: 2.2 });
+      const b = mesh(new THREE.IcosahedronGeometry(0.34, 2), m, 0, 0.1, 0); b.scale.set(1.25, 0.8, 1.1); body.add(b);
+      for (let i = 0; i < 7; i++){ const a = i / 7 * Math.PI * 2 + 0.3, r = 0.3 + (i % 2) * 0.05;
+        const l = mesh(new THREE.IcosahedronGeometry(0.07 + (i % 3) * 0.02, 1), m, Math.cos(a) * r * 1.2, 0.04, Math.sin(a) * r); l.scale.y = 0.6; body.add(l); }
+      for (const [x, z, r] of [[-0.12, -0.04, 0.06], [0.14, -0.08, 0.05], [0.02, -0.18, 0.045], [-0.2, 0.08, 0.045], [0.18, 0.1, 0.05], [0.0, 0.12, 0.055]]) body.add(mesh(new THREE.IcosahedronGeometry(r, 1), glow, x, 0.1 + 0.272*Math.sqrt(Math.max(0, 1 - (x/0.425)**2 - (z/0.374)**2)) + r*0.3, z)); // sit on the dome surface
+      body.add(mesh(box(0.26, 0.035, 0.02), glow, 0, 0.16, 0.36));
+      root.scale.setScalar(s.scale || 1);
+      return { root, parts: { body, blob: b }, h: 0.35 * (s.scale||1), kind: 'blob' };
+    }
     const g = new THREE.IcosahedronGeometry(0.24, 1);
     const m = mat(s.c, { rough: 0.3, op: s.glowEye ? 1 : 0.88 });
     const b = mesh(g, m, 0, 0.2, 0); b.scale.set(1, 0.8, 1); body.add(b);
@@ -3280,7 +3290,7 @@ const Render = (() => {
     cursorMesh.visible = false; scene.add(cursorMesh);
     // warnings & webs (instanced, rebuilt per level size)
     const wg = new THREE.PlaneGeometry(0.94, 0.94); wg.rotateX(-Math.PI/2);
-    warnMesh = new THREE.InstancedMesh(wg, new THREE.MeshBasicMaterial({ color: 0xff3a20, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }), 256);
+    warnMesh = new THREE.InstancedMesh(wg, new THREE.MeshBasicMaterial({ color: 0xff2a14, transparent: true, opacity: 0.5, depthWrite: false }), 256);
     warnMesh.count = 0; warnMesh.frustumCulled = false; scene.add(warnMesh);
     const webg = new THREE.PlaneGeometry(0.98, 0.98); webg.rotateX(-Math.PI/2);
     webMesh = new THREE.InstancedMesh(webg, new THREE.MeshBasicMaterial({ map: webTex, transparent: true, depthWrite: false, opacity: 0.85 }), 128);
@@ -3367,7 +3377,7 @@ const Render = (() => {
     const floor = patch(new THREE.MeshStandardMaterial(base));
     const wall = patch(new THREE.MeshStandardMaterial(base), { cut: true });
     const reg = REGIONS[region];
-    const water = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color(reg.water[0]*2.2, reg.water[1]*2.2, reg.water[2]*2.2), transparent: true, opacity: 0.74, roughness: 0.15, metalness: 0.2, emissive: new THREE.Color(region === 4 ? 0x601808 : 0x000000) }), { water: true });
+    const water = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color(reg.water[0]*1.3, reg.water[1]*1.3, reg.water[2]*1.3), transparent: true, opacity: 0.84, roughness: 0.1, metalness: 0.3, emissive: new THREE.Color(region === 4 ? 0x601808 : 0x000000) }), { water: true });
     const gcv = makeGrassTex(region); const gtex = new THREE.CanvasTexture(gcv); gtex.magFilter = THREE.NearestFilter; gtex.minFilter = THREE.NearestFilter; gtex.encoding = THREE.sRGBEncoding;
     const grass = patch(new THREE.MeshStandardMaterial({ map: gtex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1 }), { sway: true });
     const tcv = document.createElement('canvas'); tcv.width = tcv.height = 32; tcv.getContext('2d').drawImage(a.canvas, (TILE.TRAP % AN)*TS, Math.floor(TILE.TRAP/AN)*TS, TS, TS, 0, 0, 32, 32);
@@ -3925,7 +3935,7 @@ const Render = (() => {
     }
     for (let i = beams.length - 1; i >= 0; i--){ const b = beams[i]; b.life -= dt; b.obj.material.opacity = Math.max(0, b.life / b.max); if (b.life <= 0){ fxG.remove(b.obj); b.obj.geometry.dispose(); b.obj.material.dispose(); beams.splice(i, 1); } }
     updateParticles(dt);
-    warnMesh.material.opacity = 0.28 + Math.sin(time*10)*0.16;
+    warnMesh.material.opacity = 0.5 + Math.sin(time*10)*0.2;
     if (barrier){ barrier.material.opacity = 0.22 + Math.sin(time*3)*0.08; barrier.rotation.y = time*0.5; }
     // camera
     cam.yaw = angLerp(cam.yaw, cam.yawT, Math.min(1, dt*8));
