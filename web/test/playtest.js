@@ -66,7 +66,7 @@ const FROM = Number(process.argv[3] || 1);
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
     if (FROM > 1){ pd.changeLevel('down', FROM); while (pd.G.depth !== FROM || pd.V.busy) await wait(50); }
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
-    let steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
+    let trapLog = -1, steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
     const seen = new Set();
     // nearest explored, walkable cell that borders unexplored space (closest to the goal), skipping cells that failed
     const frontier = (L, tx, ty) => {
@@ -104,6 +104,10 @@ const FROM = Number(process.argv[3] || 1);
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
+      if (pd.V.log.length !== trapLog && (pd.V.log.at(-1) || {}).msg?.startsWith('A trap blocks')){ trapLog = pd.V.log.length; // as a player would: step onto the blocking trap on purpose
+        const t = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]].map(([dx,dy]) => [h.x+dx, h.y+dy]).find(([x,y]) => { const tr = L.traps[y*L.w + x]; return tr && tr.active && !tr.hidden; });
+        if (t) pd.UI.cellClick(t[0], t[1]);
+      }
       else { pd.UI.cellClick(h.x, h.y); if (!dry){ dry = true;
           let map = '';
           for (let y = 0; y < L.h; y++){ let r = ''; for (let x = 0; x < L.w; x++){ const c = y*L.w + x, t = L.tiles[c];
