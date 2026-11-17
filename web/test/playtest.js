@@ -104,15 +104,15 @@ const FROM = Number(process.argv[3] || 1);
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
-      if (pd.V.log.length !== trapLog && (pd.V.log.at(-1) || {}).msg?.startsWith('A trap blocks')){ trapLog = pd.V.log.length; // as a player would: step onto the blocking trap on purpose
-        const t = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]].map(([dx,dy]) => [h.x+dx, h.y+dy]).find(([x,y]) => { const tr = L.traps[y*L.w + x]; return tr && tr.active && !tr.hidden; });
-        if (t) pd.UI.cellClick(t[0], t[1]);
-      }
       else { pd.UI.cellClick(h.x, h.y); if (!dry){ dry = true;
           let map = '';
           for (let y = 0; y < L.h; y++){ let r = ''; for (let x = 0; x < L.w; x++){ const c = y*L.w + x, t = L.tiles[c];
             r += (x === h.x && y === h.y) ? '@' : !L.visited[c] ? ' ' : bad.has(c) ? 'x' : (L.traps[c] && !L.traps[c].hidden) ? '^' : '?#.+L5<>~"\',_PsWS:BT'[t]; } map += r.replace(/\s+$/, '') + '\n'; }
           console.log('[bot] nothing reachable to explore on floor ' + G.depth + ', searching\n' + map.replace(/^\n+|\n+$/g, '')); } } // search for secret doors
+      if (pd.V.log.length !== trapLog && (pd.V.log.at(-1) || {}).msg?.startsWith('A trap blocks')){ trapLog = pd.V.log.length; // as a player would: step onto the blocking trap on purpose
+        const t = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]].map(([dx,dy]) => [h.x+dx, h.y+dy]).find(([x,y]) => { const tr = L.traps[y*L.w + x]; return tr && tr.active && !tr.hidden; });
+        if (t) pd.UI.cellClick(t[0], t[1]);
+      }
       const pos = G.depth + ':' + h.time; // no game time passed = the click did nothing
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
       if (stuck && click) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
