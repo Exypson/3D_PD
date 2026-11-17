@@ -43,7 +43,21 @@ const URL = process.argv[2] || 'http://localhost:8765/';
   await page.waitForFunction(() => window.__pd.G && !window.__pd.G.over && document.querySelector('#title').hidden);
   console.log('accounts: ok');
 
-  // --- bot run, floors 1-5 (hero kept alive; this tests progression, not balance) ---
+  // --- generator: exit reachable from entrance through walkable tiles only (no locked/secret doors) ---
+  const unreachable = await page.evaluate(() => {
+    let bad = 0;
+    for (let d = 1; d <= 4; d++) for (let i = 0; i < 100; i++){
+      const L = generateLevel(d), seen = new Uint8Array(L.w*L.h), q = [L.entrance]; seen[L.entrance] = 1;
+      while (q.length){ const c = q.pop(); for (const [dx,dy] of DIRS8){ const n = c + dx + dy*L.w;
+        if (!seen[n] && TP.pass[L.tiles[n]] && diagOK(L, c % L.w, (c / L.w) | 0, n % L.w, (n / L.w) | 0)){ seen[n] = 1; q.push(n); } } }
+      if (!seen[L.exit]) bad++;
+    }
+    return bad;
+  });
+  assert.strictEqual(unreachable, 0, 'every generated floor 1-4 has a walkable entrance-to-exit path');
+  console.log('generator: ok');
+
+  // --- bot run, floors 1-5 (hero made unkillable) ---
   const result = await page.evaluate(async () => {
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
@@ -67,7 +81,7 @@ const URL = process.argv[2] || 'http://localhost:8765/';
       if (G.over) return { ok: false, why: 'died: ' + G.deathCause, depth: G.depth };
       if (!document.getElementById('modal').hidden) pd.UI.closeWindow();
       if (pd.V.busy || pd.V.needProcess) continue;
-      h.hp = h.ht; h.hunger = 0;
+      h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
       const vis = m => pd.V.fov[m.y*L.w + m.x];
       const boss = L.mobs.find(m => !m.dead && m.type === 'goo');
@@ -78,16 +92,16 @@ const URL = process.argv[2] || 'http://localhost:8765/';
         return { ok: pd.G.depth === 5, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
       }
       const goal = boss || { x: ex, y: ey };
-      let click;
+      let click, explore = false;
       if (foe) click = [foe.x, foe.y];
       else if (boss && vis(boss)) click = [boss.x, boss.y];
       else if (!boss && L.visited[L.exit]) click = [ex, ey];
-      else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
+      else { const f = frontier(L, goal.x, goal.y); if (f >= 0){ click = [f % L.w, (f / L.w) | 0]; explore = true; } }
       if (click) pd.UI.cellClick(click[0], click[1]);
       else pd.UI.cellClick(h.x, h.y); // nothing left to explore: search for secret doors
       const pos = G.depth + ':' + h.x + ',' + h.y;
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
-      if (stuck === 3 && click) bad.add(click[1]*L.w + click[0]);
+      if (stuck && explore) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
       if (stuck > 80){ // last resort, counted in the result: hop next to the exit
         hops++; h.x = ex; h.y = ey + (PASS.has(L.tiles[(ey+1)*L.w + ex]) ? 1 : -1); stuck = 0;
         console.log('[bot] hop on floor ' + G.depth + ' clicking ' + JSON.stringify(click) + ' tile ' + (click ? L.tiles[click[1]*L.w + click[0]] : '-') + ' keys ' + JSON.stringify(h.keys) + ' log ' + JSON.stringify(pd.V.log.slice(-2).map(l => l.msg)));
