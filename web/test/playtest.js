@@ -1,4 +1,5 @@
-// Headless playtest: accounts, per-user saves, level generation, and a bot run from a start floor to DEMO_MAX_DEPTH.
+// Headless playtest: accounts, per-user saves, level generation, every game system (classes, abilities, attacks,
+// monsters, bosses, traps, items, shop, save/load, hunger, level-up, secrets, death), then a bot run to DEMO_MAX_DEPTH.
 // Usage: serve web/ (e.g. `python3 -m http.server 8765` inside web/), then `node test/playtest.js [url] [startFloor] [walk]`.
 const { chromium } = require('playwright');
 const assert = require('assert');
@@ -61,6 +62,167 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
   }, TO);
   assert.strictEqual(unreachable, 0, 'every generated non-boss floor has a walkable entrance-to-exit path and no corridor traps');
   console.log('generator: ok');
+
+  // --- systems: every class + ability, attacks, monsters, bosses, traps, items, shop, save/load, hunger, level-up, secrets, death ---
+  const sys = await page.evaluate(async (TO) => {
+    const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
+    const passed = [], failed = [];
+    const check = (name, ok, info) => (ok ? passed : failed).push(ok ? name : name + ' :: ' + JSON.stringify(info === undefined ? '' : info));
+    const section = async (name, fn) => { try { await fn(); } catch (e) { failed.push(name + ' threw: ' + (e && e.stack || e)); } };
+    const modal = () => !document.getElementById('modal').hidden;
+    const ready = async () => { for (let i = 0; i < 600 && (pd.V.busy || pd.V.needProcess); i++) await wait(15); if (modal()) pd.UI.closeWindow(); };
+    const god = () => { const h = pd.G.hero; h.ht = Math.max(h.ht, 9999); h.hp = h.ht; h.hunger = 0; for (const k of ['para','frozen','rooted','sleep','charm','terror','amok']) delete h.buffs[k]; };
+    const clearBlobs = () => { for (const k of ['fire','toxic','para','frost']) pd.L[k].fill(0); pd.L.web.fill(0); pd.V.blobDirty = true; };
+    const doAct = async (fn, keepAlive = true) => { await ready(); if (keepAlive) god(); const r = pd.act(fn); await ready(); if (keepAlive) god(); return r; };
+    const near = (x, y, dist) => { const L = pd.L, out = []; for (let dy = -dist; dy <= dist; dy++) for (let dx = -dist; dx <= dist; dx++){ const nx = x+dx, ny = y+dy;
+      if ((dx || dy) && Math.max(Math.abs(dx), Math.abs(dy)) === dist && inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w+nx]] && !charAt(nx, ny) && !L.traps[ny*L.w+nx] && L.tiles[ny*L.w+nx] !== T.EXIT && L.tiles[ny*L.w+nx] !== T.ENTRANCE
+        && (dist > 1 || diagOK(L, x, y, nx, ny)) && (dist === 1 || losClear(L, x, y, nx, ny))) out.push([nx, ny]); } return out; };
+    const clearMobs = () => { pd.L.mobs = pd.L.mobs.filter(m => m.type === 'keeper'); pd.Render.sync(); };
+    const spawn = (type, dist = 1) => { const h = pd.G.hero; const c = near(h.x, h.y, dist)[0] || near(h.x, h.y, 1)[0];
+      const m = mkMob(type, c[0], c[1]); m.state = 'hunting'; m.target = { x: h.x, y: h.y }; m.time = h.time + 0.5; pd.L.mobs.push(m); pd.Render.sync(); return m; };
+    const gone = m => m.dead || !pd.L.mobs.includes(m);
+    const hurt = m => gone(m) || m.hp < m.ht;
+    const kill = m => { for (let i = 0; i < 4 && !gone(m); i++) damage(m, m.hp + 9999, pd.G.hero); };
+    const fresh = async cls => { pd.newGame(cls); await wait(400); await ready(); god(); clearMobs(); };
+    const goTo = async d => { await ready(); pd.changeLevel('down', d); for (let i = 0; i < 400 && (pd.G.depth !== d || pd.V.busy); i++) await wait(25); await ready(); god(); };
+    const meleeUntil = async (m, maxTurns) => { for (let i = 0; i < maxTurns && !gone(m); i++){ const h = pd.G.hero;
+      if (Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) !== 1){ m.x = near(h.x, h.y, 1)[0][0]; m.y = near(h.x, h.y, 1)[0][1]; pd.Render.sync(true); }
+      await doAct(() => heroMove(m.x - pd.G.hero.x, m.y - pd.G.hero.y)); } };
+
+    // classes, starting kit, melee, class abilities
+    for (const cls of Object.keys(CLASSES)) await section('class ' + cls, async () => {
+      await fresh(cls);
+      const h = pd.G.hero;
+      check(cls + ': starts with a weapon and armor', !!h.eq.weapon && !!h.eq.armor);
+      const rat = spawn('rat'); await meleeUntil(rat, 60);
+      check(cls + ': melee kills a rat', gone(rat));
+      if (cls === 'warrior'){
+        h.shield = 0; for (let i = 0; i < 20; i++) await doAct(heroWait);
+        check('warrior: seal shield recharges', h.shield > 0, h.shield);
+        const stone = h.inv.find(i => i.k === 'missile'), q0 = stone.qty, m = spawn('rat', 2);
+        await doAct(() => throwItem(stone, m.x, m.y));
+        check('warrior: throws a stone', (stone.qty || 0) < q0 || !findItem(stone.id), stone.qty);
+      }
+      if (cls === 'mage'){
+        const staff = h.eq.weapon, m = spawn('gnoll', 2), c0 = staff.ch;
+        await doAct(() => zapWand(staff, m.x, m.y));
+        check('mage: staff zap spends a charge', staff.ch === c0 - 1, [c0, staff.ch]);
+        check('mage: staff bolt hurts the target', hurt(m), m.hp);
+      }
+      if (cls === 'rogue'){
+        const cloak = h.eq.art;
+        await doAct(() => toggleCloak(cloak)); check('rogue: cloak turns invisible', !!h.buffs.invis);
+        await doAct(() => toggleCloak(cloak)); check('rogue: cloak toggles off', !h.buffs.invis);
+        const knives = h.inv.find(i => i.k === 'missile'), q0 = knives.qty, m = spawn('rat', 2);
+        await doAct(() => throwItem(knives, m.x, m.y));
+        check('rogue: throws a knife', (knives.qty || 0) < q0 || !findItem(knives.id), knives.qty);
+      }
+      if (cls === 'huntress'){
+        const bow = h.inv.find(i => i.k === 'bow'), m = spawn('gnoll', 2);
+        for (let i = 0; i < 12 && !hurt(m); i++){ if (gone(m)) break; await doAct(() => shootBow(bow, m.x, m.y)); }
+        check('huntress: spirit bow hits', hurt(m), m.hp);
+      }
+    });
+
+    // items
+    await section('items', async () => {
+      await fresh('warrior'); const h = pd.G.hero; h.str = 18;
+      for (const t of Object.keys(POTIONS)){ const it = mkPotion(t); h.inv.push(it); await doAct(() => drinkPotion(it)); clearBlobs();
+        check('potion: drink ' + t, !findItem(it.id)); }
+      { const it = mkPotion('frost'); h.inv.push(it); const m = spawn('gnoll', 2); await doAct(() => throwItem(it, m.x, m.y));
+        check('potion: thrown frost freezes', !!(m.buffs.frozen || m.buffs.chill) || gone(m), m.buffs); clearBlobs(); clearMobs(); }
+      for (const t of Object.keys(SCROLLS)){ const it = mkScroll(t); h.inv.push(it, mkWeapon('sword')); clearMobs(); spawn('rat', 2);
+        await ready(); god(); pd.act(() => readScroll(it)); await wait(150);
+        if (modal()){ const slot = [...document.querySelectorAll('#modal .slot[data-id]')].find(b => b.style.opacity !== '0.3' && !b.disabled); if (slot) slot.click(); }
+        await ready(); clearBlobs();
+        check('scroll: read ' + t, !findItem(it.id)); }
+      clearMobs();
+      for (const t of Object.keys(WANDS)){ const w = mkWand(t, 2); h.inv.push(w); clearMobs(); const m = spawn('gnoll', 2), c0 = w.ch;
+        await doAct(() => zapWand(w, m.x, m.y)); clearBlobs();
+        check('wand: zap ' + t, w.ch === c0 - 1, [c0, w.ch]); }
+      clearMobs();
+      for (const t of Object.keys(RINGS)){ const r = mkRing(t, 1); h.inv.push(r);
+        await doAct(() => heroEquip(r)); const on = isEquipped(r); await doAct(() => heroUnequip(r));
+        check('ring: wear and remove ' + t, on && !isEquipped(r)); }
+      for (const t of Object.keys(WEAPONS)){ const w = mkWeapon(t, 0); h.inv.push(w); await doAct(() => heroEquip(w));
+        const rat = spawn('rat'); await meleeUntil(rat, 40);
+        check('weapon: equip and fight with ' + t, h.eq.weapon === w && gone(rat)); clearMobs(); }
+      for (const t of Object.keys(ARMORS)){ const a = mkArmor(t, 0); h.inv.push(a); await doAct(() => heroEquip(a));
+        check('armor: equip ' + t, h.eq.armor === a); }
+      for (const t of Object.keys(FOODS)){ const f = mkFood(t); h.inv.push(f); h.hunger = 200; await doAct(() => heroEat(f), false);
+        check('food: eat ' + t, !findItem(f.id) && h.hunger < 200, h.hunger); }
+      for (const t of Object.keys(MISSILES)){ const it = mkMissile(t, 3); h.inv.push(it); const m = spawn('gnoll', 2);
+        await doAct(() => throwItem(it, m.x, m.y));
+        check('missile: throw ' + t, it.qty < 3 || !findItem(it.id), it.qty); clearMobs(); }
+    });
+
+    // traps
+    await section('traps', async () => {
+      await fresh('warrior');
+      for (const t of Object.keys(TRAPS)){ clearMobs(); clearBlobs(); god(); const h = pd.G.hero;
+        const spot = near(h.x, h.y, 1).find(([x, y]) => x === h.x || y === h.y); const c = spot[1]*pd.L.w + spot[0];
+        pd.L.traps[c] = { t, hidden: false, active: true }; pd.V.trapDirty = true;
+        await doAct(() => heroMove(spot[0] - h.x, spot[1] - h.y));
+        check('trap: ' + t + ' triggers', !pd.L.traps[c].active);
+        clearBlobs(); }
+    });
+
+    // monsters of every region, each fighting the hero, then dying
+    await section('monsters', async () => {
+      await fresh('warrior');
+      for (const d of [3, 8, 13, 18].filter(d => d < TO)){
+        await goTo(d);
+        const types = [...new Set([d-2, d-1, d, d+1].flatMap(x => mobRotation(x)))];
+        for (const type of types){ clearMobs(); clearBlobs(); god();
+          const m = spawn(type, 2), t0 = m.time;
+          for (let i = 0; i < 10 && !gone(m); i++) await doAct(heroWait);
+          check('monster: ' + type + ' acts', gone(m) || m.time > t0, [t0, m.time]);
+          kill(m); await ready();
+          check('monster: ' + type + ' dies', gone(m)); }
+      }
+    });
+
+    // bosses: fight a few turns, then the kill unseals the stairs
+    await section('bosses', async () => {
+      await fresh('warrior');
+      for (const d of Object.keys(BOSS_DEPTHS).map(Number).filter(d => d <= TO)){
+        await goTo(d); clearBlobs();
+        const L = pd.L, boss = L.mobs.find(m => MOBS[m.type].boss), h = pd.G.hero;
+        const spot = near(boss.x, boss.y, 2)[0] || near(boss.x, boss.y, 1)[0]; h.x = spot[0]; h.y = spot[1]; pd.Render.sync(true); updateFOV();
+        wakeBoss(boss); const t0 = boss.time;
+        for (let i = 0; i < 25 && !gone(boss); i++){ await doAct(heroWait); clearBlobs(); }
+        check('boss: ' + boss.type + ' fights', boss.time > t0, [t0, boss.time]);
+        kill(boss); await ready();
+        check('boss: ' + boss.type + ' dies and unseals the stairs', L.bossDefeated && L.tiles[L.exit] === T.EXIT);
+      }
+    });
+
+    // shop, save/load, hunger, level-up, secret doors, death
+    await section('misc', async () => {
+      await fresh('warrior'); await goTo(6); const h = pd.G.hero;
+      const c = Object.keys(pd.L.heaps).map(Number).find(k => pd.L.heaps[k].some(i => i.price));
+      if (c === undefined) check('shop: floor 6 has a shop', false);
+      else { h.gold = 99999; const it = pd.L.heaps[c].find(i => i.price); pd.UI.openBuy(c); await wait(100); document.getElementById('byes').click(); await ready();
+        check('shop: buy an item', !!findItem(it.id) && h.gold < 99999); }
+      const lv = h.lvl; earnExp(maxExp(h.lvl) - h.exp); check('hero levels up', h.lvl === lv + 1, [lv, h.lvl]);
+      const before = { depth: pd.G.depth, lvl: h.lvl, inv: h.inv.length, x: h.x, y: h.y };
+      pd.startGameFrom(pd.loadSave(pd.serialize())); await ready();
+      const h2 = pd.G.hero; check('save and load round-trip', h2.lvl === before.lvl && pd.G.depth === before.depth && h2.inv.length === before.inv && h2.x === before.x && h2.y === before.y, before);
+      h2.hunger = 440; for (let i = 0; i < 15; i++){ await ready(); pd.act(heroWait); await ready(); h2.hp = h2.ht; }
+      check('hunger reaches starving', h2.hunger >= 450, h2.hunger);
+      const s = near(h2.x, h2.y, 1).find(([x, y]) => x === h2.x || y === h2.y), sc = s[1]*pd.L.w + s[0];
+      pd.L.tiles[sc] = T.SECRET; searchAround(1, 1); check('search reveals a secret door', pd.L.tiles[sc] === T.DOOR);
+      h2.ht = 20; h2.hp = 5; damage(h2, 500, 'a test'); await wait(2600);
+      check('death ends the run', pd.G.over && modal() && /died/i.test(document.getElementById('modal').textContent));
+      check('death is recorded in best runs', JSON.parse(localStorage.getItem(rankKey()) || '[]').length > 0);
+    });
+    return { passed, failed };
+  }, TO);
+  for (const f of sys.failed) console.log('  FAIL ' + f);
+  console.log('systems: ' + sys.passed.length + ' passed, ' + sys.failed.length + ' failed');
+  assert.strictEqual(sys.failed.length, 0, 'all systems checks pass');
+  await page.evaluate(() => { if (!window.__pd.G || window.__pd.G.over) { if (!document.getElementById('modal').hidden) window.__pd.UI.closeWindow(); window.__pd.newGame('warrior'); } });
+  await page.waitForTimeout(800);
 
   // --- bot run, FROM to TO (hero made unkillable) ---
   const result = await page.evaluate(async ([FROM, TO, WALK]) => {

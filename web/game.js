@@ -146,7 +146,7 @@ const MOBS = {
   golem:   { name:'Golem', hp:120, def:15, att:28, dmg:[25,30], dr:[0,12], exp:12, max:22, atkDelay:1.5, loot:0.2, lootK:'weapon',
              model:{k:'golem', c:0x8a8270, c2:0x60e0ff, scale:1.35}, desc:'A towering construct of enchanted stone. Slow to swing, but devastating.' },
   king:    { name:'King of Dwarves', hp:300, def:22, att:26, dmg:[15,25], dr:[0,10], exp:40, max:30, boss:true,
-             model:{k:'humanoid', c:0x6a2a8a, c2:0xe0b040, head:0xd8b08c, beard:0xd0d0d8, crown:true, weapon:'staff', glow:0xff60ff, scale:1.25}, desc:'The last king of the dwarves, now a necromancer. He calls his dead subjects to his side.' },
+             model:{k:'humanoid', c:0x4a4038, c2:0x2a2420, head:0x6a6e78, eye:0xc070ff, robe:true, collar:0x8a7a5a, halo:0xc070ff, core:0xc070ff, weapon:'staff', glow:0xd090ff, scale:1.3}, desc:'The last king of the dwarves, now a necromancer. He calls his dead subjects to his side.' },
 
   succubus:{ name:'Succubus', hp:80, def:25, att:40, dmg:[25,30], dr:[0,10], exp:12, max:25, charm:true, drain:true, loot:0.33, lootK:'scroll',
              model:{k:'humanoid', c:0x9a2a5a, c2:0x2a0a1a, head:0xe0a0b0, horns:0x2a0a1a, wings:0x5a1a2a, scale:1.0}, desc:'A demon that charms its prey and drinks their vitality.' },
@@ -2996,6 +2996,8 @@ const MDL = (() => {
     if (s.horns != null){ const hm = mat(s.horns); const h1 = mesh(box(0.04, 0.14, 0.04), hm, -0.08, 0.27, 0); h1.rotation.z = 0.4; const h2 = mesh(box(0.04, 0.14, 0.04), hm, 0.08, 0.27, 0); h2.rotation.z = -0.4; head.add(h1, h2); }
     if (s.visor != null) head.add(mesh(box(hs*0.75, 0.035, 0.02), mat(0x000000, { em: s.visor, ei: 2.2 }), 0, 0.12, hs/2 + 0.008));
     if (s.collar != null) torso.add(mesh(box(0.32, 0.06, 0.21), mat(s.collar, { metal: 0.6, rough: 0.4 }), 0, 0.27, 0));
+    if (s.halo != null){ const hm = mat(0x000000, { em: s.halo, ei: 1.6 }); for (let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; const sp = mesh(box(0.025, 0.12, 0.025), hm, Math.cos(a) * 0.17, 0.36, Math.sin(a) * 0.17); sp.rotation.z = Math.cos(a) * 0.25; sp.rotation.x = -Math.sin(a) * 0.25; head.add(sp); } parts.halo = head; }
+    if (s.core != null) torso.add(mesh(box(0.08, 0.08, 0.02), mat(0x000000, { em: s.core, ei: 2.2 }), 0, 0.17, 0.09));
     if (s.mask){ head.add(mesh(box(hs+0.01, 0.15, 0.02), mat(0xd04040), 0, 0.11, hs/2+0.006)); eyes(head, 0.13, hs/2 + 0.02, 0.05, 0xffffff, 0.04); head.add(mesh(box(0.05, 0.05, 0.08), mat(0xd04040), 0, 0.08, hs/2+0.04)); }
     if (s.shield){ const sh = mesh(box(0.04, 0.22, 0.2), mat(s.shield, { metal: 0.5, rough: 0.5 }), -0.03, -0.14, 0.04); parts.armL.add(sh); sh.add(mesh(box(0.01, 0.06, 0.06), mat(0xe0b040, { metal:0.8, rough:0.3 }), -0.025, 0, 0)); }
     if (s.weapon){
@@ -4699,7 +4701,7 @@ const Sound = (() => {
 // ============================================================
 // SAVE / LOAD / RUNS
 // ============================================================
-const DEMO_MAX_DEPTH = 15; // demo ships region 1 only; raise as each 5-floor region passes testing
+const DEMO_MAX_DEPTH = 20; // demo ships region 1 only; raise as each 5-floor region passes testing
 const saveKey = () => 'pd3d_save_v1:' + Auth.user(), rankKey = () => 'pd3d_ranks_v1:' + Auth.user();
 const ARR_KEYS = ['tiles','visited','fire','toxic','para','frost','web'];
 function packLevel(Lv){
