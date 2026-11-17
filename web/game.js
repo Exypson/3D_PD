@@ -133,7 +133,7 @@ const MOBS = {
   dm200:   { name:'DM-200', hp:80, def:12, att:20, dmg:[10,25], dr:[0,8], exp:9, max:17, gasVent:true, loot:0.2, lootK:'armor',
              model:{k:'robot', c:0x8d7a52, c2:0x9fe05a, scale:1.2}, desc:'A heavy mining machine. It vents caustic gas when its target is out of reach.' },
   dm300:   { name:'DM-300', hp:260, def:15, att:20, dmg:[15,25], dr:[0,10], exp:30, max:30, boss:true,
-             model:{k:'robot', c:0x8a6a3a, c2:0xff7a30, scale:1.9}, desc:'An enormous dwarven excavator gone rogue. It vents toxic fumes and shakes rocks loose from the ceiling.' },
+             model:{k:'robot', c:0xb08a3a, c2:0xff7a30, scale:1.7, excavator:true}, desc:'An enormous dwarven excavator gone rogue. It vents toxic fumes and shakes rocks loose from the ceiling.' },
 
   ghoul:   { name:'Dwarven Ghoul', hp:45, def:20, att:24, dmg:[16,22], dr:[0,4], exp:5, max:20, revive:true, loot:0.2, lootK:'gold',
              model:{k:'humanoid', c:0x6a7a6a, c2:0x3a4a3a, head:0x9aa88a, hunched:true, scale:0.95}, desc:'A dwarf who fed on the dead. Unless finished properly, it may rise again.' },
@@ -3115,6 +3115,14 @@ const MDL = (() => {
     armL.add(mesh(box(0.08, 0.22, 0.08), dk, 0, -0.1, 0.02)); armR.add(mesh(box(0.08, 0.22, 0.08), dk, 0, -0.1, 0.02));
     armL.add(mesh(box(0.1, 0.06, 0.12), m, 0, -0.22, 0.05)); armR.add(mesh(box(0.1, 0.06, 0.12), m, 0, -0.22, 0.05));
     torso.add(armL, armR);
+    if (s.excavator){ // boss: tracked excavator with a drill arm, furnace grille and twin exhaust stacks
+      const tr = mat(0x2a2622, { metal: 0.4, rough: 0.7 }), glow = mat(0x000000, { em: s.c2, ei: 1.8 });
+      for (const x of [-0.2, 0.2]){ body.add(mesh(box(0.1, 0.1, 0.42), tr, x, 0.05, 0)); for (let k = -2; k <= 2; k++) body.add(mesh(box(0.11, 0.02, 0.03), dk, x, 0.1, k*0.08)); }
+      for (let k = 0; k < 3; k++) torso.add(mesh(box(0.05, 0.12, 0.02), glow, -0.08 + k*0.08, 0.1, 0.135));
+      for (const x of [-0.1, 0.1]){ torso.add(mesh(box(0.05, 0.16, 0.05), dk, x, 0.38, -0.09)); torso.add(mesh(box(0.06, 0.02, 0.06), glow, x, 0.465, -0.09)); }
+      const drill = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 6), mat(0x9a9aa0, { metal: 0.6, rough: 0.4 })); drill.rotation.x = Math.PI/2; drill.position.set(0, -0.24, 0.16); armR.add(drill);
+      armL.add(mesh(box(0.14, 0.05, 0.14), m, 0, -0.26, 0.08));
+    }
     root.scale.setScalar(s.scale || 1);
     return { root, parts: { body, torso, armL, armR }, h: 0.5 * (s.scale||1), kind: 'robot' };
   }
@@ -4691,7 +4699,7 @@ const Sound = (() => {
 // ============================================================
 // SAVE / LOAD / RUNS
 // ============================================================
-const DEMO_MAX_DEPTH = 10; // demo ships region 1 only; raise as each 5-floor region passes testing
+const DEMO_MAX_DEPTH = 15; // demo ships region 1 only; raise as each 5-floor region passes testing
 const saveKey = () => 'pd3d_save_v1:' + Auth.user(), rankKey = () => 'pd3d_ranks_v1:' + Auth.user();
 const ARR_KEYS = ['tiles','visited','fire','toxic','para','frost','web'];
 function packLevel(Lv){

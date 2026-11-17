@@ -1,9 +1,10 @@
 // Headless playtest: accounts, per-user saves, level generation, and a bot run from a start floor to DEMO_MAX_DEPTH.
-// Usage: serve web/ (e.g. `python3 -m http.server 8765` inside web/), then `node test/playtest.js [url] [startFloor]`.
+// Usage: serve web/ (e.g. `python3 -m http.server 8765` inside web/), then `node test/playtest.js [url] [startFloor] [walk]`.
 const { chromium } = require('playwright');
 const assert = require('assert');
 const URL = process.argv[2] || 'http://localhost:8765/';
 const FROM = Number(process.argv[3] || 1);
+const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the bot just explores and takes the stairs
 
 (async () => {
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist'] });
@@ -62,7 +63,7 @@ const FROM = Number(process.argv[3] || 1);
   console.log('generator: ok');
 
   // --- bot run, FROM to TO (hero made unkillable) ---
-  const result = await page.evaluate(async ([FROM, TO]) => {
+  const result = await page.evaluate(async ([FROM, TO, WALK]) => {
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
     if (FROM > 1){ pd.changeLevel('down', FROM); while (pd.G.depth !== FROM || pd.V.busy) await wait(50); }
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
@@ -87,6 +88,8 @@ const FROM = Number(process.argv[3] || 1);
       if (!document.getElementById('modal').hidden) pd.UI.closeWindow();
       if (pd.V.busy || pd.V.needProcess) continue;
       h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
+      if (WALK){ for (const m of L.mobs) if (MOBS[m.type].boss && !L.bossDefeated) onBossDeath(m); // unseal the stairs as a kill would
+        L.mobs = L.mobs.filter(m => m.ally || m.type === 'keeper'); }
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
       const k = L.visited.reduce((a, v) => a + v, 0); if (k > known){ known = k; bad.clear(); dry = false; } // new ground: retry blacklisted targets
       const vis = m => pd.V.fov[m.y*L.w + m.x];
@@ -122,7 +125,7 @@ const FROM = Number(process.argv[3] || 1);
       }
     }
     return { ok: false, why: 'step limit', depth: pd.G.depth, hops, seen: [...seen] };
-  }, [FROM, TO]);
+  }, [FROM, TO, WALK]);
   console.log('bot:', JSON.stringify(result));
   await page.screenshot({ path: 'test/last-run.png' });
   assert(result.ok && result.boss, 'bot beat floor ' + TO + '\'s boss and hit the demo gate: ' + JSON.stringify(result));
