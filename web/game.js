@@ -159,11 +159,11 @@ const MOBS = {
   larva:   { name:"God's Larva", hp:20, def:12, att:30, dmg:[15,25], dr:[0,4], exp:5, max:30,
              model:{k:'blob', c:0x5a3a5a, c2:0xff60a0, scale:0.6}, desc:'A writhing spawn of the Old God.' },
   fistb:   { name:'Burning Fist', hp:180, def:20, att:36, dmg:[18,32], dr:[0,15], exp:0, max:30, burns:true, ranged:{range:5, dmg:[15,25], kind:'fire', chance:0.3}, bossMinion:true,
-             model:{k:'fist', c:0xb03a1a, c2:0xffa030}, desc:'A colossal fist wreathed in flame, bound to Yog-Dzewa.' },
+             model:{k:'fist', c:0x2e2622, c2:0xffa030}, desc:'A floating claw wreathed in flame, bound to Yog-Dzewa.' },
   fistr:   { name:'Rotting Fist', hp:180, def:20, att:36, dmg:[18,32], dr:[0,15], exp:0, max:30, poison:true, bossMinion:true,
-             model:{k:'fist', c:0x4a6a2a, c2:0xa0ff50}, desc:'A colossal fist oozing rot, bound to Yog-Dzewa.' },
+             model:{k:'fist', c:0x26301f, c2:0xa0ff50}, desc:'A floating claw oozing rot, bound to Yog-Dzewa.' },
   yog:     { name:'Yog-Dzewa', hp:600, def:0, att:0, dmg:[0,0], dr:[0,0], exp:50, max:30, boss:true, immobile:true,
-             model:{k:'yog', c:0x3a0a1a, c2:0xff4020}, desc:'The Old God sealed beneath the dungeon. Destroy its fists before you can harm it.' },
+             model:{k:'yog', c:0x16121c, c2:0xff4a28}, desc:'The Old God, sealed in living stone beneath the dungeon. Destroy its guardians before you can harm it.' },
 
   image:   { name:'Mirror Image', hp:1, def:10, att:10, dmg:[1,4], dr:[0,0], exp:0, max:0, ally:true,
              model:{k:'hero'}, desc:'A magical copy of you. It fades on the first hit.' },
@@ -2357,7 +2357,7 @@ function wakeBoss(m){
     tengu: 'Tengu: "Fugitive spotted. I\'ll put you back where you belong."',
     dm300: 'DM-300: "UNAUTHORIZED PERSONNEL DETECTED."',
     king: 'King of Dwarves: "How dare you trespass in my halls! Rise, my subjects!"',
-    yog: 'Yog-Dzewa\'s countless eyes turn toward you. The fists stir.',
+    yog: 'The sealed stone cracks with light. Yog-Dzewa\'s guardians rise.',
   };
   const key = m.type === 'fistb' || m.type === 'fistr' ? 'yog' : m.type;
   if (lines[key] && !L.bossAnnounced){ L.bossAnnounced = true; log(lines[key], 'bad'); UI.toast(MOBS[key === 'yog' ? 'yog' : m.type].name, 'Floor ' + G.depth + ' guardian'); Sound.play('boss'); }
@@ -3193,31 +3193,27 @@ const MDL = (() => {
     root.scale.setScalar(1.15);
     return { root, parts: { body, head, tail, segs, armL: clawL, armR: clawR, legs }, h: 0.5, kind: 'scorpion' };
   }
-  function fist(s){
+  function fist(s){ // final boss's guardians: a floating claw of three curved talons around a glowing core, with a plated collar
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-    const m = mat(s.c), dk = mat(darker(s.c, 0.7));
-    body.add(mesh(box(0.5, 0.4, 0.4), m, 0, 0, 0));
-    for (let i = 0; i < 4; i++) body.add(mesh(box(0.11, 0.13, 0.14), dk, -0.18 + i*0.12, 0.13, 0.22));
-    body.add(mesh(box(0.14, 0.12, 0.26), dk, 0.3, -0.04, 0.05));
-    body.add(mesh(box(0.3, 0.06, 0.02), mat(0x000000, { em: s.c2, ei: 1.6 }), 0, -0.05, 0.205));
+    const m = mat(s.c, { metal: 0.4, rough: 0.6 }), dk = mat(darker(s.c, 0.7)), glow = mat(0x000000, { em: s.c2, ei: 1.9 });
+    const core = mesh(new THREE.IcosahedronGeometry(0.13, 1), glow, 0, 0, 0); body.add(core);
+    for (let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; const pl = mesh(box(0.12, 0.05, 0.06), dk, Math.cos(a) * 0.17, 0.12, Math.sin(a) * 0.17); pl.rotation.y = -a; body.add(pl); }
+    for (let i = 0; i < 3; i++){ const a = i / 3 * Math.PI * 2 + 0.5; const t = pivot(Math.cos(a) * 0.16, 0.02, Math.sin(a) * 0.16);
+      const s1 = mesh(box(0.07, 0.24, 0.07), m, 0, -0.12, 0), s2 = mesh(box(0.05, 0.16, 0.05), m, 0, -0.3, 0.04); s2.rotation.x = 0.5;
+      t.add(s1, s2); t.rotation.y = -a; t.rotation.x = 0.35; body.add(t); }
     body.position.y = 0.55;
-    return { root, parts: { body }, h: 0.8, kind: 'fist', flying: true, light: s.c2 };
+    return { root, parts: { body, core }, h: 0.8, kind: 'fist', flying: true, light: s.c2 };
   }
-  function yog(s){
+  function yog(s){ // final boss: a cracked obsidian monolith sealed in a ring of standing stones, with a floating core and orbiting rune shards
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-    const m = mat(s.c, { rough: 0.5 });
-    const mass = mesh(new THREE.IcosahedronGeometry(0.75, 1), m, 0, 0.75, 0); body.add(mass);
-    const eyesArr = [];
-    for (let i = 0; i < 9; i++){
-      const a = i/9*Math.PI*2, el = 0.2 + (i%3)*0.3;
-      const e = mesh(new THREE.SphereGeometry(0.1 + (i===0?0.12:0), 10, 8), mat(0xeeddcc, { rough: 0.3 }), Math.cos(a)*0.62*Math.cos(el), 0.75 + Math.sin(el)*0.6, Math.sin(a)*0.62*Math.cos(el) + 0.1);
-      if (i === 0){ e.position.set(0, 0.95, 0.68); }
-      e.add(mesh(new THREE.SphereGeometry(i===0 ? 0.11 : 0.05, 8, 6), mat(0x000000, { em: s.c2, ei: 2 }), 0, 0, i===0 ? 0.13 : 0.07));
-      body.add(e); eyesArr.push(e);
-    }
-    const tents = [];
-    for (let i = 0; i < 6; i++){ const a = i/6*6.28; const p = pivot(Math.cos(a)*0.6, 0.3, Math.sin(a)*0.6); p.add(mesh(box(0.12, 0.6, 0.12), mat(darker(s.c, 0.8)), 0, -0.2, 0)); p.rotation.z = Math.cos(a)*0.6; p.rotation.x = -Math.sin(a)*0.6; body.add(p); tents.push(p); }
-    return { root, parts: { body, mass, eyes: eyesArr, tents }, h: 1.8, kind: 'yog', light: s.c2 };
+    const m = mat(s.c, { metal: 0.4, rough: 0.6 }), glow = mat(0x000000, { em: s.c2, ei: 2 }), stone = mat(darker(s.c, 1.6));
+    for (let i = 0; i < 7; i++){ const a = i / 7 * Math.PI * 2; const st = mesh(box(0.16, 0.34 + (i % 3) * 0.1, 0.12), stone, Math.cos(a) * 0.82, 0.17, Math.sin(a) * 0.82); st.rotation.y = -a; st.rotation.z = (i % 2 ? 0.12 : -0.1); body.add(st); }
+    const mass = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), m); mass.scale.set(1, 1.7, 0.8); mass.position.y = 0.95; body.add(mass);
+    for (const [y, r, w] of [[0.7, 0.4, 0.5], [0.95, -0.3, 0.42], [1.2, 0.5, 0.3], [0.85, 1.2, 0.34]]){ const f = mesh(box(w, 0.035, 0.02), glow, 0, y, 0.36 - Math.abs(y - 0.95) * 0.3); f.rotation.z = r; body.add(f); }
+    const core = mesh(new THREE.IcosahedronGeometry(0.16, 1), glow, 0, 2.0, 0); body.add(core);
+    const ring = new THREE.Group(); ring.position.y = 1.15; ring.scale.setScalar(3.4); body.add(ring);
+    const frags = []; for (let i = 0; i < 6; i++){ const f = mesh(box(0.025, 0.05, 0.012), glow, 0, 0, 0); f.userData.ph = i / 6 * Math.PI * 2; ring.add(f); frags.push(f); }
+    return { root, parts: { body, mass, core, frags }, h: 2.1, kind: 'yog', light: s.c2 };
   }
   function build(type){
     const d = MOBS[type]; const s = d.model;
@@ -4701,7 +4697,7 @@ const Sound = (() => {
 // ============================================================
 // SAVE / LOAD / RUNS
 // ============================================================
-const DEMO_MAX_DEPTH = 20; // demo ships region 1 only; raise as each 5-floor region passes testing
+const DEMO_MAX_DEPTH = 26; // 26 is the Amulet floor (no stairs down), so the full game is open // demo ships region 1 only; raise as each 5-floor region passes testing
 const saveKey = () => 'pd3d_save_v1:' + Auth.user(), rankKey = () => 'pd3d_ranks_v1:' + Auth.user();
 const ARR_KEYS = ['tiles','visited','fire','toxic','para','frost','web'];
 function packLevel(Lv){

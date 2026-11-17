@@ -193,6 +193,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
         wakeBoss(boss); const t0 = boss.time;
         for (let i = 0; i < 25 && !gone(boss); i++){ await doAct(heroWait); clearBlobs(); }
         check('boss: ' + boss.type + ' fights', boss.time > t0, [t0, boss.time]);
+        for (const g of L.mobs.filter(m => MOBS[m.type].bossMinion)){ kill(g); check('boss guardian: ' + g.type + ' dies', gone(g)); }
         kill(boss); await ready();
         check('boss: ' + boss.type + ' dies and unseals the stairs', L.bossDefeated && L.tiles[L.exit] === T.EXIT);
       }
@@ -216,6 +217,14 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       h2.ht = 20; h2.hp = 5; damage(h2, 500, 'a test'); await wait(2600);
       check('death ends the run', pd.G.over && modal() && /died/i.test(document.getElementById('modal').textContent));
       check('death is recorded in best runs', JSON.parse(localStorage.getItem(rankKey()) || '[]').length > 0);
+    });
+    if (TO >= 26) await section('victory', async () => {
+      if (modal()) pd.UI.closeWindow();
+      await fresh('warrior'); await goTo(26);
+      const L = pd.L, ped = Object.keys(L.heaps).map(Number).find(c => L.heaps[c].some(i => i.k === 'amulet')), h = pd.G.hero;
+      h.x = cx_(ped); h.y = cy_(ped) + 1; pd.Render.sync(true); updateFOV();
+      await doAct(() => heroMove(0, -1)); await wait(2600);
+      check('taking the Amulet wins the run', pd.G.over && pd.V.won && modal() && /amulet/i.test(document.getElementById('modal').textContent));
     });
     return { passed, failed };
   }, TO);
@@ -247,7 +256,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     while (steps++ < 2500 * (TO - FROM + 1)){
       await wait(15);
       const G = pd.G, L = pd.L, h = G.hero;
-      if (G.over) return { ok: false, why: 'died: ' + G.deathCause, depth: G.depth };
+      if (G.over) return pd.V.won ? { ok: G.depth === TO, why: 'victory', depth: G.depth, boss: true, hops, seen: [...seen] } : { ok: false, why: 'died: ' + G.deathCause, depth: G.depth };
       if (!document.getElementById('modal').hidden) pd.UI.closeWindow();
       if (pd.V.busy || pd.V.needProcess) continue;
       h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
@@ -263,11 +272,13 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
         pd.UI.cellClick(h.x, h.y); await wait(300);
         return { ok: pd.G.depth === TO, why: 'gate', depth: pd.G.depth, boss: true, hops, seen: [...seen] };
       }
-      const goal = boss || { x: ex, y: ey };
+      const amulet = L.exit < 0 ? Object.keys(L.heaps).map(Number).find(c => L.heaps[c].some(i => i.k === 'amulet')) : undefined;
+      const goal = boss || (amulet !== undefined ? { x: cx_(amulet), y: cy_(amulet) } : { x: ex, y: ey });
       let click;
       if (foe) click = [foe.x, foe.y];
       else if (boss && vis(boss) && !bad.has(boss.y*L.w + boss.x)) click = [boss.x, boss.y];
-      else if (!boss && L.visited[L.exit]) click = [ex, ey];
+      else if (!boss && amulet !== undefined && L.visited[amulet]) click = [goal.x, goal.y];
+      else if (!boss && L.exit >= 0 && L.visited[L.exit]) click = [ex, ey];
       else { const f = frontier(L, goal.x, goal.y); if (f >= 0) click = [f % L.w, (f / L.w) | 0]; }
       if (click) pd.UI.cellClick(click[0], click[1]);
       else if (bad.size) bad.clear(); // retry once: a blacklisted cell may have been blocked only by a monster that has since moved
@@ -292,7 +303,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
   }, [FROM, TO, WALK]);
   console.log('bot:', JSON.stringify(result));
   await page.screenshot({ path: 'test/last-run.png' });
-  assert(result.ok && result.boss, 'bot beat floor ' + TO + '\'s boss and hit the demo gate: ' + JSON.stringify(result));
+  assert(result.ok && result.boss, 'bot reached the end (demo gate or victory) on floor ' + TO + ': ' + JSON.stringify(result));
   assert.strictEqual(result.hops, 0, 'bot never needed the teleport fallback');
   assert.deepStrictEqual(errors, [], 'no console errors');
   console.log('playtest: ok');
