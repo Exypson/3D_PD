@@ -209,6 +209,28 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       }
     });
 
+    // challenges
+    await section('challenges', async () => {
+      pd.newGame('warrior', { dark: true, glass: true, starving: true, blind: true }); await wait(400); await ready();
+      const h = pd.G.hero, L = pd.L;
+      let far = 0; for (let c = 0; c < L.w*L.h; c++) if (pd.V.fov[c]) far = Math.max(far, Math.abs(c % L.w - h.x), Math.abs(((c / L.w) | 0) - h.y));
+      check('challenge: darkness limits sight to 4 tiles', far <= 4, far);
+      check('challenge: glass hero starts at half health', h.ht === 10 && h.hp === 10, [h.hp, h.ht]);
+      let drMax = 0; for (let i = 0; i < 300; i++) drMax = Math.max(drMax, heroDR());
+      check('challenge: glass hero armor blocks double', drMax > armorDRMax(h.eq.armor), drMax);
+      const f = mkFood('ration'); h.inv.push(f); h.hunger = 400; await doAct(() => heroEat(f), false);
+      check('challenge: starving halves food', h.hunger >= 250 && h.hunger <= 252, h.hunger);
+      const w = mkWeapon('sword', 0); w.known = false; for (let i = 0; i < 30; i++) weaponUsed(w);
+      check('challenge: blind faith never identifies gear by use', !w.known);
+      const s4 = scoreOf(), saved = pd.G.ch; pd.G.ch = {}; const s0 = scoreOf(); pd.G.ch = saved;
+      check('challenge: each one adds 25% score', s4 === s0 * 2, [s0, s4]);
+      pd.newGame('warrior', { swarm: true, noupgrade: true }); await wait(400); await ready();
+      const lv = [2, 3, 4].map(d => generateLevel(d));
+      check('challenge: swarming spawns more monsters, none asleep', lv.every(l => l.mobLimit >= Math.round((3 + l.depth % 5) * 1.5) && l.mobs.every(m => m.state !== 'sleeping')), lv.map(l => l.mobLimit));
+      const scrolls = [pd.L, ...lv].flatMap(l => Object.values(l.heaps).flat()).filter(i => i.k === 'scroll');
+      check('challenge: no upgrades swaps them for recharging', !scrolls.some(i => i.t === 'upgrade') && scrolls.some(i => i.t === 'recharging'), scrolls.map(i => i.t));
+    });
+
     // shop, save/load, hunger, level-up, secret doors, death
     await section('misc', async () => {
       await fresh('warrior'); await goTo(6); const h = pd.G.hero;

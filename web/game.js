@@ -309,6 +309,16 @@ const CLASSES = {
   huntress:{ name:'Huntress', desc:'Shoots a spirit bow with endless arrows that grows stronger as she levels up.', color:0x3a8a4a },
 };
 
+const CHALLENGES = {
+  starving:  { n:'Starving',    d:'Food satisfies half as much.' },
+  blind:     { n:'Blind Faith', d:'Gear is never identified by use.' },
+  glass:     { n:'Glass Hero',  d:'Half health, but armor blocks twice as much.' },
+  swarm:     { n:'Swarming',    d:'Half again as many monsters, and none of them sleep.' },
+  noupgrade: { n:'No Upgrades', d:'Scrolls of Upgrade become Scrolls of Recharging.' },
+  dark:      { n:'Darkness',    d:'You can see only 4 tiles around you.' },
+};
+const chal = k => !!(G && G.ch && G.ch[k]);
+const chalCount = () => G && G.ch ? Object.keys(G.ch).filter(k => G.ch[k]).length : 0;
 const BUFF_INFO = {
   poison:{n:'Poisoned', c:'#94c94e'}, burning:{n:'Burning', c:'#ff8a3a'}, para:{n:'Paralyzed', c:'#f0e04a'}, frozen:{n:'Frozen', c:'#a8e8ff'},
   chill:{n:'Chilled', c:'#a8d8ff'}, cripple:{n:'Crippled', c:'#c0a080'}, weak:{n:'Weakened', c:'#b07ce0'}, rooted:{n:'Rooted', c:'#d0d0a0'},
@@ -463,7 +473,7 @@ function genRegular(depth){
   const normal = rooms.filter(r => r.type === 'normal' || r.type === 'exit' || r.type === 'entrance');
   const drop = (it, rr) => { const rm = rr || R.pick(normal); const c = freeCellInRoom(L, rm); if (c >= 0) addHeap(L, c, it); };
   while (posNeeded(depth)){ G.limited.pos++; drop(mkPotion('strength')); }
-  while (souNeeded(depth)){ G.limited.sou++; drop(mkScroll('upgrade')); }
+  while (souNeeded(depth)){ G.limited.sou++; drop(mkScroll(chal('noupgrade') ? 'recharging' : 'upgrade')); }
   if (R.chance(0.55)) drop(mkFood('ration')); else if (R.chance(0.6)) drop(mkFood(R.chance(0.3)?'pasty':'small'));
   const nItems = 3 + R.int(2) + (R.chance(0.3) ? 1 : 0);
   for (let i = 0; i < nItems; i++) drop(randomItem(depth));
@@ -482,7 +492,7 @@ function genRegular(depth){
   }
   if (L.shop){ const sr = rooms.find(r => r.type === 'shop'); fillShop(L, sr, depth); }
   // mobs
-  const nMobs = 3 + (depth % 5) + R.int(3);
+  const nMobs = Math.round((3 + (depth % 5) + R.int(3)) * (chal('swarm') ? 1.5 : 1));
   L.mobLimit = nMobs;
   const rot = R.shuffle(mobRotation(depth).slice());
   const ex = L.entrance % W, ey = (L.entrance / W) | 0;
@@ -493,7 +503,7 @@ function genRegular(depth){
     if (cheb(x, y, ex, ey) < 9) continue;
     if (mobAt(L, x, y)) continue;
     const m = mkMob(rot[i % rot.length], x, y);
-    m.state = R.chance(0.6) ? 'sleeping' : 'wandering';
+    m.state = !chal('swarm') && R.chance(0.6) ? 'sleeping' : 'wandering';
     L.mobs.push(m); i++;
   }
   return L;
@@ -982,7 +992,7 @@ function castLight(Lv, cx, cy, row, start, end, radius, xx, xy, yx, yy, out){
 function updateFOV(){
   const h = G.hero, n = L.w*L.h;
   if (!V.fov || V.fov.length !== n) V.fov = new Uint8Array(n);
-  computeFOV(L, h.x, h.y, 8, V.fov);
+  computeFOV(L, h.x, h.y, chal('dark') ? 4 : 8, V.fov);
   for (let i = 0; i < n; i++) if (V.fov[i]) L.visited[i] = 1;
   V.mind = !!h.buffs.mind;
 }
@@ -1049,7 +1059,7 @@ function ringLevel(type){ const h = G.hero; let s = 0; for (const k of ['ring1',
 function heroStr(){ return G.hero.str + ringLevel('might'); }
 function updateHT(){
   const h = G.hero; const old = h.ht;
-  h.ht = Math.round((20 + 5*(h.lvl-1)) * (1 + 0.035*ringLevel('might')));
+  h.ht = Math.round((20 + 5*(h.lvl-1)) * (1 + 0.035*ringLevel('might')) * (chal('glass') ? 0.5 : 1));
   if (h.ht > old) h.hp += h.ht - old;
   h.hp = Math.min(h.hp, h.ht);
 }
@@ -1091,7 +1101,7 @@ function heroDR(){
   const h = G.hero, a = h.eq.armor; let dr = 0;
   if (a){ dr = R.normal(armorDRMin(a), armorDRMax(a)); const deficit = strReq(ARMORS[a.t].tier, a.lvl) - heroStr(); if (deficit > 0) dr -= deficit; }
   const w = h.eq.weapon; if (w && WEAPONS[w.t].block) dr += R.int(0, WEAPONS[w.t].block + Math.max(0, w.lvl) + 1);
-  return Math.max(0, dr);
+  return Math.max(0, chal('glass') ? dr*2 : dr);
 }
 function moveCost(ch){
   let s = 1;
@@ -1181,7 +1191,7 @@ function breakInvis(){
   else if (h.buffs.invis && h.buffs.invis.potion){ delete h.buffs.invis; log('You become visible again.', 'warn'); }
 }
 function weaponUsed(w){
-  if (w.known) return;
+  if (w.known || chal('blind')) return;
   w.uses = (w.uses || 0) + 1;
   if (w.uses >= 20){ identify(w); log('You are now familiar enough with your ' + baseName(w) + ' to identify it. It is ' + itemName(w) + '.', 'good'); }
 }
@@ -1213,7 +1223,7 @@ function defenseProc(def, att, dmg){
   if (isHero(def)){
     const a = def.eq.armor;
     if (a && a.ench === 'thorns' && dmg > 0 && att && !isHero(att) && R.chance(0.25)){ const r = Math.max(1, Math.round(dmg*0.5)); damage(att, r, def); }
-    if (a && !a.known && dmg > 0){ a.uses = (a.uses||0) + 1; if (a.uses >= 15){ identify(a); log('You are now familiar enough with your ' + baseName(a) + ' to identify it. It is ' + itemName(a) + '.', 'good'); } }
+    if (a && !a.known && !chal('blind') && dmg > 0){ a.uses = (a.uses||0) + 1; if (a.uses >= 15){ identify(a); log('You are now familiar enough with your ' + baseName(a) + ' to identify it. It is ' + itemName(a) + '.', 'good'); } }
   }
   return dmg;
 }
@@ -1425,7 +1435,7 @@ function envTick(){
       if (it.active){ it.ch -= 0.25; h.buffs.invis = { t: 9999, cloak: true }; if (it.ch <= 0){ it.ch = 0; it.active = false; delete h.buffs.invis; log('Your cloak runs out of energy.', 'warn'); } }
       else { if (h.buffs.invis && h.buffs.invis.cloak) delete h.buffs.invis; if (it.ch < it.chMax) it.ch = Math.min(it.chMax, it.ch + energy/12); }
     }
-    if (it.k === 'ring' && isEquipped(it) && !it.known){ it.worn = (it.worn || 0) + 1; if (it.worn >= 150){ identify(it); log('You are now familiar with your ring. It is a ' + itemName(it) + '.', 'good'); } }
+    if (it.k === 'ring' && isEquipped(it) && !it.known && !chal('blind')){ it.worn = (it.worn || 0) + 1; if (it.worn >= 150){ identify(it); log('You are now familiar with your ring. It is a ' + itemName(it) + '.', 'good'); } }
   }
   tickBuffs(h);
   if (!h.dead) blobEffects(h);
@@ -1773,7 +1783,7 @@ function heroWait(){ searchAround(G.hero.cls === 'rogue' ? 2 : 1, 1); return 1; 
 function heroEat(it){
   const h = G.hero; const f = FOODS[it.t];
   takeOne(it);
-  h.hunger = Math.max(0, h.hunger - f.sat);
+  h.hunger = Math.max(0, h.hunger - f.sat * (chal('starving') ? 0.5 : 1));
   log('You eat the ' + f.name.toLowerCase() + '. That hit the spot.', 'good'); Sound.play('eat');
   if (it.t === 'meat' && R.chance(0.3)){
     const r = R.int(4);
@@ -1968,7 +1978,7 @@ function zapWand(it, tx, ty){
   const wl = Math.max(0, it.lvl);
   if (it.ch < 1){ log('Your ' + baseName(it) + ' fizzles; it has no charges left.', 'warn'); return 1; }
   it.ch--;
-  if (!isStaff && !it.known){ it.zaps = (it.zaps||0) + 1; if (it.zaps >= 3){ identify(it); log('You are now familiar with your ' + baseName(it) + '. It is ' + itemName(it) + '.', 'good'); } }
+  if (!isStaff && !it.known && !chal('blind')){ it.zaps = (it.zaps||0) + 1; if (it.zaps >= 3){ identify(it); log('You are now familiar with your ' + baseName(it) + '. It is ' + itemName(it) + '.', 'good'); } }
   breakInvisLater();
   const [lo, hi] = wandDmg({ t: wt, lvl: wl });
   const col = parseInt(WANDS[wt].color.slice(1), 16);
@@ -4294,6 +4304,7 @@ const UI = (() => {
       <span>Gold collected</span><span>${G.stats.gold}</span>
       <span>Deepest floor</span><span>${G.stats.deepest}</span>
       </div>
+      ${chalCount() ? `<h3>Challenges</h3><p>${Object.keys(G.ch).filter(k => G.ch[k]).map(k => CHALLENGES[k].n).join(', ')}</p>` : ''}
       <h3>Identified potions</h3><p>${kp.length ? kp.join(', ') : 'None yet.'}</p>
       <h3>Identified scrolls</h3><p>${ks.length ? ks.join(', ') : 'None yet.'}</p>
       <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" id="cclose">Close</button></div>`, p => p.querySelector('#cclose').addEventListener('click', closeWindow));
@@ -4721,12 +4732,12 @@ function loadSave(str){
 }
 function hasSave(){ try { return !!localStorage.getItem(saveKey()); } catch (e) { return false; } }
 function deleteSave(){ try { localStorage.removeItem(saveKey()); } catch (e) {} }
-function scoreOf(){ const h = G.hero; return Math.round(G.stats.gold + h.lvl * G.stats.deepest * 100 + G.stats.kills * 10 + (V.won ? 25000 : 0)); }
+function scoreOf(){ const h = G.hero; return Math.round((G.stats.gold + h.lvl * G.stats.deepest * 100 + G.stats.kills * 10 + (V.won ? 25000 : 0)) * (1 + 0.25 * chalCount())); }
 function endRun(won, quiet){
   deleteSave();
   try {
     const r = JSON.parse(localStorage.getItem(rankKey()) || '[]');
-    r.push({ cls: G.hero.cls, lvl: G.hero.lvl, depth: G.stats.deepest, won: !!won, cause: G.deathCause || '', score: scoreOf(), date: Date.now() });
+    r.push({ cls: G.hero.cls, lvl: G.hero.lvl, depth: G.stats.deepest, won: !!won, cause: G.deathCause || '', score: scoreOf(), ch: chalCount(), date: Date.now() });
     r.sort((a, b) => b.score - a.score); localStorage.setItem(rankKey(), JSON.stringify(r.slice(0, 10)));
   } catch (e) {}
   if (won) UI.toast('Victory!', 'The Amulet of Yendor is yours');
@@ -4745,8 +4756,8 @@ function startGameFrom(state){
   document.getElementById('title').hidden = true;
   UI.update();
 }
-function newGame(cls){
-  G = { v: 1, seed: (Math.random()*2147483647)>>>0, nid: 0, depth: 1, cls, envTime: 0, limited: { sou: 0, pos: 0 },
+function newGame(cls, ch){
+  G = { v: 1, ch: Object.assign({}, ch || {}), seed: (Math.random()*2147483647)>>>0, nid: 0, depth: 1, cls, envTime: 0, limited: { sou: 0, pos: 0 },
     known: { potion:{}, scroll:{}, ring:{} }, looks: { potion:{}, scroll:{}, ring:{}, wand:{} }, levels: {},
     stats: { kills: 0, gold: 0, deepest: 1, turns: 0, start: Date.now() }, quick: [null, null, null, null], over: false };
   const pc = R.shuffle(Object.keys(POTION_COLORS)); Object.keys(POTIONS).forEach((k, i) => G.looks.potion[k] = pc[i]);
@@ -4754,6 +4765,7 @@ function newGame(cls){
   const rg = R.shuffle(Object.keys(RING_GEMS)); Object.keys(RINGS).forEach((k, i) => G.looks.ring[k] = rg[i]);
   Object.keys(WANDS).forEach(k => G.looks.wand[k] = R.int(WAND_WOOD.length));
   const h = createHero(cls);
+  if (chal('glass')){ updateHT(); h.hp = h.ht; }
   G.levels[1] = generateLevel(1);
   L = G.levels[1]; L.entered = true;
   h.x = L.entrance % L.w; h.y = (L.entrance / L.w) | 0;
@@ -4771,22 +4783,25 @@ function showTitle(){
   let ranks = [];
   try { ranks = JSON.parse(localStorage.getItem(rankKey()) || '[]'); } catch (e) {}
   const save = hasSave();
-  let chosen = 'warrior';
+  let chosen = 'warrior'; const picked = {};
   t.innerHTML = `<div class="logo"><div class="l1">Pixel Dungeon<br><em>3D</em></div><div class="l2">A roguelike descent</div></div>
     <div class="card panel">
       ${save ? `<div class="row" style="justify-content:center;margin-bottom:12px"><button class="btn primary" id="tcont">Continue your run</button></div><h3 style="text-align:center">Or start over</h3>` : `<h3>Choose your hero</h3>`}
       <div class="classes">${Object.keys(CLASSES).map(k => `<button class="cls ${k === chosen ? 'sel' : ''}" data-c="${k}"><canvas width="16" height="16"></canvas><b>${CLASSES[k].name}</b><span>${esc(CLASSES[k].desc)}</span></button>`).join('')}</div>
+      <h3>Challenges <small style="text-transform:none;letter-spacing:0">(+25% score each)</small></h3>
+      <div class="chals">${Object.keys(CHALLENGES).map(k => `<button class="btn chal" data-k="${k}" aria-pressed="false" title="${esc(CHALLENGES[k].d)}">${CHALLENGES[k].n}</button>`).join('')}</div>
       <div class="row" style="justify-content:space-between;margin-top:14px"><span class="row"><button class="btn" id="thelp">How to play</button><button class="btn" id="tout" title="Signed in as ${esc(Auth.displayName())}">Sign out</button></span><button class="btn ${save ? '' : 'primary'}" id="tstart">${save ? 'New run (replaces save)' : 'Enter the dungeon'}</button></div>
-      ${ranks.length ? `<h3>Best runs</h3><div class="stats" style="max-width:none;grid-template-columns:1fr auto auto">${ranks.slice(0, 5).map(r => `<span>${CLASSES[r.cls].name} lv ${r.lvl}, ${r.won ? 'claimed the Amulet' : 'floor ' + r.depth + (r.cause ? ', ' + esc(r.cause) : '')}</span><span></span><span>${r.score}</span>`).join('')}</div>` : ''}
+      ${ranks.length ? `<h3>Best runs</h3><div class="stats" style="max-width:none;grid-template-columns:1fr auto auto">${ranks.slice(0, 5).map(r => `<span>${CLASSES[r.cls].name} lv ${r.lvl}, ${r.won ? 'claimed the Amulet' : 'floor ' + r.depth + (r.cause ? ', ' + esc(r.cause) : '')}${r.ch ? ' · ' + r.ch + (r.ch > 1 ? ' challenges' : ' challenge') : ''}</span><span></span><span>${r.score}</span>`).join('')}</div>` : ''}
     </div>
     <p class="credit">A 3D fork of <a href="https://github.com/00-evan/shattered-pixel-dungeon" target="_blank" rel="noopener">Shattered Pixel Dungeon</a> by Evan Debenham, itself based on <a href="https://github.com/watabou/pixel-dungeon" target="_blank" rel="noopener">Pixel Dungeon</a> by Watabou. Free software under the GPLv3. Game rules follow the original source; all art here is generated procedurally. Not affiliated with Shattered Pixel.</p>`;
   t.hidden = false;
   t.querySelectorAll('.cls').forEach(b => {
     drawIconTo(b.querySelector('canvas'), 'hero:' + b.dataset.c);
     b.addEventListener('click', () => { chosen = b.dataset.c; t.querySelectorAll('.cls').forEach(x => x.classList.toggle('sel', x === b)); });
-    b.addEventListener('dblclick', () => { Sound.unlock(); newGame(b.dataset.c); });
+    b.addEventListener('dblclick', () => { Sound.unlock(); newGame(b.dataset.c, picked); });
   });
-  t.querySelector('#tstart').addEventListener('click', () => { Sound.unlock(); newGame(chosen); });
+  t.querySelectorAll('.chal').forEach(b => b.addEventListener('click', () => { picked[b.dataset.k] = !picked[b.dataset.k]; b.classList.toggle('on', picked[b.dataset.k]); b.setAttribute('aria-pressed', String(picked[b.dataset.k])); }));
+  t.querySelector('#tstart').addEventListener('click', () => { Sound.unlock(); newGame(chosen, picked); });
   t.querySelector('#thelp').addEventListener('click', () => UI.openHelp());
   t.querySelector('#tout').addEventListener('click', () => { G = null; Auth.signOut(); showTitle(); }); // drop the loaded run, or the next player's auto-save writes it into their slot
   const tc = t.querySelector('#tcont');
