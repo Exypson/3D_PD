@@ -97,6 +97,12 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       if (Math.max(Math.abs(m.x-h.x), Math.abs(m.y-h.y)) !== 1){ m.x = near(h.x, h.y, 1)[0][0]; m.y = near(h.x, h.y, 1)[0][1]; pd.Render.sync(true); }
       await doAct(() => heroMove(m.x - pd.G.hero.x, m.y - pd.G.hero.y)); } };
 
+    const openSpot = n => { const L = pd.L, h = pd.G.hero, ok = (x, y) => inb(L, x, y) && TP.pass[L.tiles[y*L.w + x]] && !charAt(x, y) && !L.traps[y*L.w + x] && ![T.EXIT, T.ENTRANCE, T.DOOR].includes(L.tiles[y*L.w + x]);
+      for (let c = 0; c < L.w*L.h; c++){ const x = c % L.w, y = (c / L.w) | 0; if (!ok(x, y)) continue;
+        for (const [dx, dy] of DIRS4){ const cells = []; for (let k = 1; k <= n && ok(x + dx*k, y + dy*k); k++) cells.push([x + dx*k, y + dy*k]);
+          if (cells.length === n){ h.x = x; h.y = y; pd.Render.sync(true); updateFOV(); return cells; } } } return null; };
+    const put = (type, [x, y]) => { const m = mkMob(type, x, y); m.state = 'hunting'; m.buffs.para = { t: 999 }; m.hp = m.ht = 500; m.time = pd.G.hero.time + 0.5; pd.L.mobs.push(m); pd.Render.sync(); return m; };
+
     // classes, starting kit, melee, class abilities
     for (const cls of Object.keys(CLASSES)) await section('class ' + cls, async () => {
       await fresh(cls);
@@ -211,11 +217,6 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
 
     // subclasses: chosen after the floor-10 boss, then one concrete effect each
     await section('subclasses', async () => {
-      const openSpot = n => { const L = pd.L, h = pd.G.hero, ok = (x, y) => inb(L, x, y) && TP.pass[L.tiles[y*L.w + x]] && !charAt(x, y) && !L.traps[y*L.w + x] && ![T.EXIT, T.ENTRANCE, T.DOOR].includes(L.tiles[y*L.w + x]);
-        for (let c = 0; c < L.w*L.h; c++){ const x = c % L.w, y = (c / L.w) | 0; if (!ok(x, y)) continue;
-          for (const [dx, dy] of DIRS4){ const cells = []; for (let k = 1; k <= n && ok(x + dx*k, y + dy*k); k++) cells.push([x + dx*k, y + dy*k]);
-            if (cells.length === n){ h.x = x; h.y = y; pd.Render.sync(true); updateFOV(); return cells; } } } return null; };
-      const put = (type, [x, y]) => { const m = mkMob(type, x, y); m.state = 'hunting'; m.buffs.para = { t: 999 }; m.hp = m.ht = 500; m.time = pd.G.hero.time + 0.5; pd.L.mobs.push(m); pd.Render.sync(); return m; };
       await fresh('warrior'); await goTo(10);
       const boss = pd.L.mobs.find(m => MOBS[m.type].boss); kill(boss); await wait(1800);
       const opts = [...document.querySelectorAll('#modal [data-sub]')].map(b => b.dataset.sub);
@@ -255,6 +256,32 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       clearMobs(); pd.L.web.fill(0); hh.sub = 'thornweaver'; cells = openSpot(2); m = put('gnoll', cells[1]);
       await doAct(() => shootBow(bow, m.x, m.y));
       check('thornweaver: arrows sprout brambles and root the target', pd.L.web.some(v => v) && !!m.buffs.rooted, [pd.L.web.some(v => v), !!m.buffs.rooted]);
+    });
+
+    // powers: chosen after the floor-15 guardian, then each one works and recharges
+    await section('powers', async () => {
+      await fresh('warrior'); await goTo(15);
+      kill(pd.L.mobs.find(m => MOBS[m.type].boss)); await wait(1800);
+      const opts = [...document.querySelectorAll('#modal [data-ab]')].map(b => b.dataset.ab);
+      check('power: the floor-15 guardian offers three powers', opts.join() === 'blink,shockwave,secondwind', opts);
+      document.querySelector('#modal [data-ab="blink"]')?.click(); await wait(50);
+      const h = pd.G.hero;
+      check('power: picking one sets it, ready to use, with a HUD button', h.ab === 'blink' && h.abCh === 100 && !document.getElementById('b-ab').hidden, [h.ab, h.abCh]);
+      clearMobs(); let cells = openSpot(3);
+      const [tx, ty] = cells[2], ox = h.x, oy = h.y;
+      check('blink step: refuses a tile more than 4 away', useAbility(h.x + 9, h.y) === false && h.abCh === 100);
+      await doAct(() => useAbility(tx, ty));
+      check('blink step: teleports and leaves a decoy', h.x === tx && h.y === ty && pd.L.mobs.some(m => m.type === 'image' && m.x === ox && m.y === oy) && h.abCh < 100, [h.x, h.y, h.abCh]);
+      for (let i = 0; i < 10; i++) await doAct(heroWait);
+      const c0 = h.abCh; const r = spawn('rat'); kill(r);
+      check('power: recharges a point a turn and 10 per kill', c0 >= 10 && h.abCh === Math.min(100, c0 + 10), [c0, h.abCh]);
+      clearMobs(); h.ab = 'shockwave'; h.abCh = 100; cells = openSpot(2);
+      const g = put('gnoll', cells[0]); delete g.buffs.para;
+      await doAct(() => useAbility());
+      check('shockwave: knocks back and stuns adjacent enemies', g.x === cells[1][0] && g.y === cells[1][1] && !!g.buffs.para, [g.x, g.y, !!g.buffs.para]);
+      clearMobs(); h.ab = 'secondwind'; h.abCh = 100; await ready(); h.ht = 100; h.hp = 10; h.regen = 0; h.buffs.poison = { t: 9 }; h.buffs.burning = { t: 5 };
+      pd.act(() => useAbility()); await ready();
+      check('second wind: heals 30% and clears poison and fire', h.hp >= 39 && !h.buffs.poison && !h.buffs.burning, [h.hp, Object.keys(h.buffs)]);
     });
 
     // alchemy: a cauldron on the third floor of each region; three items brew one

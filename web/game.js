@@ -329,6 +329,36 @@ const SUBCLASSES = {
   tracker:     { cls:'huntress', n:'Tracker',     d:'Arrows mark their target for 10 turns. Marked enemies show through walls and take 25% more damage from everything.' },
   thornweaver: { cls:'huntress', n:'Thornweaver', d:'Arrows sprout brambles where they land, rooting anything that walks in. Whatever the arrow hits is rooted too.' },
 };
+const ABILITIES = {
+  blink:      { n:'Blink Step',  d:'Teleport to a tile you can see up to 4 away, leaving a decoy behind for a few turns.' },
+  shockwave:  { n:'Shockwave',   d:'Knock back every enemy next to you and stun them for a moment.' },
+  secondwind: { n:'Second Wind', d:'Heal 30% of your health and shake off poison, fire, slowing and weakness.' },
+};
+function useAbility(tx, ty){
+  const h = G.hero;
+  if (!h.ab) return false;
+  if ((h.abCh || 0) < 100){ log('Your power is still recharging.', 'warn'); return false; }
+  if (h.ab === 'blink'){
+    const c = ty*L.w + tx;
+    if (tx === undefined || !inb(L, tx, ty) || !V.fov[c] || !TP.pass[L.tiles[c]] || charAt(tx, ty) || cheb(tx, ty, h.x, h.y) > 4){ log('You can\'t blink there.', 'warn'); return false; }
+    const ox = h.x, oy = h.y; FX.puff(ox, oy);
+    h.x = tx; h.y = ty; FX.teleport(h); onEnter(h, c, false);
+    const d = mkMob('image', ox, oy); d.life = 6; d.state = 'hunting'; d.time = h.time + 1; L.mobs.push(d); FX.spawn(d);
+  } else if (h.ab === 'shockwave'){
+    for (const m of L.mobs.slice()) if (!m.dead && !m.ally && !MOBS[m.type].passive && cheb(m.x, m.y, h.x, h.y) === 1){
+      if (!MOBS[m.type].boss && !MOBS[m.type].immobile){ const nx = m.x + Math.sign(m.x - h.x), ny = m.y + Math.sign(m.y - h.y);
+        if (inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w + nx]] && !charAt(nx, ny) && diagOK(L, m.x, m.y, nx, ny)){ m.x = nx; m.y = ny; FX.move(m); onEnter(m, cellOf(m), false); } }
+      addBuff(m, 'para', 2);
+    }
+    FX.burst(h.x, h.y, 0xe8d8a0, 24, 1.2); FX.shake(0.2);
+  } else {
+    h.hp = Math.min(h.ht, h.hp + Math.round(h.ht * 0.3));
+    for (const k of ['poison', 'burning', 'cripple', 'weak', 'chill', 'rooted']) delete h.buffs[k];
+    FX.heal(h);
+  }
+  h.abCh = 0; log('You unleash ' + ABILITIES[h.ab].n + '!', 'mag'); Sound.play('zap');
+  return 1;
+}
 const sub = k => !!(G && G.hero && G.hero.sub === k);
 const RECIPES = {
   brew:   { n:'Three potions',           d:'one random potion, identified',  test: c => c.potion === 3 },
@@ -1327,6 +1357,7 @@ function die(ch, src){
   if (!ch.ally){
     if (heroSees(ch.x, ch.y)) log(TheName(ch) + ' is slain.', 'info');
     G.stats.kills++;
+    if (G.hero.ab) G.hero.abCh = Math.min(100, (G.hero.abCh || 0) + 10);
     if (!ch.noexp && G.hero.lvl <= d.max) earnExp(d.exp);
     const c = cellOf(ch);
     if (ch.stolen){ addHeap(L, c, ch.stolen); ch.stolen = null; }
@@ -1464,6 +1495,7 @@ function envTick(){
     h.regen += 0.1 * (h.lvl >= 10 ? 1.25 : 1);
     while (h.regen >= 1 && h.hp < h.ht){ h.regen -= 1; h.hp++; }
   } else h.regen = 0;
+  if (h.ab && (h.abCh || 0) < 100) h.abCh = Math.min(100, (h.abCh || 0) + 1);
   // warrior seal shield
   if (h.cls === 'warrior' && h.eq.armor){ const maxS = 3 + 2*Math.max(0, h.eq.armor.lvl) + ARMORS[h.eq.armor.t].tier; h.sp += 1/7; if (h.sp >= 1){ h.sp -= 1; if (h.shield < maxS) h.shield++; } h.shieldMax = maxS; }
   // charges
@@ -1705,7 +1737,8 @@ function changeLevel(dir, toDepth){
     Render.buildLevel(L);
     Render.sync(true);
     UI.update();
-    if (!h.sub && G.levels[10] && G.levels[10].bossDefeated) setTimeout(() => { if (!G.over) UI.choosePath(); }, 500);
+    if (!h.sub && G.levels[10] && G.levels[10].bossDefeated) later(UI.choosePath, 500);
+    if (!h.ab && G.levels[15] && G.levels[15].bossDefeated) later(UI.chooseAbility, 900);
     if (dir === 'down' && !L.entered){
       const reg = REGIONS[L.region];
       if (G.depth % 5 === 1) UI.toast(reg.name, 'Floor ' + G.depth);
@@ -2112,12 +2145,14 @@ function onBossDeath(m){
   addHeap(L, c, mkGold(G.depth * 2));
   addHeap(L, c, vaultItem(G.depth + 2));
   if (m.type === 'goo') addHeap(L, c, mkPotion('healing'));
-  if (G.depth === 10 && !G.hero.sub) setTimeout(() => { if (!G.over) UI.choosePath(); }, 1400);
+  if (G.depth === 10 && !G.hero.sub) later(UI.choosePath, 1400);
+  if (G.depth === 15 && !G.hero.ab) later(UI.chooseAbility, 1400);
   log(MOBS[m.type].name + ' has been defeated! The way onward is open.', 'good');
   UI.toast('Victory', MOBS[m.type].name + ' falls');
   FX.shake(0.4); Sound.play('boss');
   V.itemsDirty = true;
 }
+function later(fn, ms){ const g = G; setTimeout(() => { if (G === g && !G.over) fn(); }, ms); } // a prompt for this run only, never a later one
 function victory(){
   V.won = true; G.over = true;
   log('You hold the Amulet of Yendor. Its power is yours!', 'good');
@@ -4183,6 +4218,8 @@ const UI = (() => {
       b.querySelector('.q').textContent = q;
       b.title = it ? itemName(it) + ' (' + (i+1) + ')' : 'Empty quickslot. Assign one from your backpack.';
     });
+    const ab = $('b-ab'); ab.hidden = !h.ab;
+    if (h.ab){ ab.querySelector('.lbl').textContent = ABILITIES[h.ab].n; ab.querySelector('.q').textContent = (h.abCh || 0) >= 100 ? 'ready' : Math.floor(h.abCh || 0) + '%'; ab.classList.toggle('empty', (h.abCh || 0) < 100); }
     // enemies
     const foes = visibleFoes();
     $('enemyind').innerHTML = foes.slice(0, 3).map(m => `<button class="foe" data-id="${m.id}" title="Attack ${esc(MOBS[m.type].name)}">${esc(MOBS[m.type].name)} <small>${Math.ceil(m.hp / m.ht * 100)}%</small></button>`).join('');
@@ -4309,6 +4346,18 @@ const UI = (() => {
       <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => {
         h.sub = b.dataset.sub; log('You walk the path of the ' + SUBCLASSES[h.sub].n + '.', 'mag'); FX.levelUp(h); Sound.play('level'); closeWindow(); saveGame(); })));
   }
+  function chooseAbility(){
+    const h = G.hero; if (h.ab || !$('modal').hidden) return;
+    openWindow(`<h2>Choose a power</h2><p>The guardian's armor holds one power for you to keep for the rest of the run. It recharges as you explore and fight.</p>
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px">${Object.keys(ABILITIES).map(k => `<button class="btn" data-ab="${k}" style="text-align:left"><b>${ABILITIES[k].n}</b><br><span style="font-family:var(--f-body);font-size:13px">${esc(ABILITIES[k].d)}</span></button>`).join('')}</div>
+      <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-ab]').forEach(b => b.addEventListener('click', () => {
+        h.ab = b.dataset.ab; h.abCh = 100; log('You claim ' + ABILITIES[h.ab].n + '. Press R or the power button to use it.', 'mag'); FX.levelUp(h); Sound.play('level'); closeWindow(); update(); saveGame(); })));
+  }
+  function usePower(){
+    if (!G || G.over || !G.hero.ab || heroBusy()) return;
+    if (G.hero.ab === 'blink'){ if ((G.hero.abCh || 0) < 100){ log('Your power is still recharging.', 'warn'); return; } startTargeting('blink', null, -1); }
+    else act(() => useAbility());
+  }
   function chooseItem(title, filter, cb){ chooseCB = cb; chooseFilter = filter; chooseTitle = title; openInventory(); }
   function openBuy(c){
     const heap = L.heaps[c]; if (!heap) return;
@@ -4356,6 +4405,7 @@ const UI = (() => {
       <tr><td><kbd>Z</kbd></td><td>Rest until healed or something appears.</td></tr>
       <tr><td><kbd>I</kbd></td><td>Open your backpack.</td></tr>
       <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Use a quickslot. Thrown and zapped items aim at the nearest enemy; press again or click to fire, <kbd>Tab</kbd> to cycle targets.</td></tr>
+      <tr><td><kbd>R</kbd></td><td>Use your power, once you have claimed one after the floor-15 guardian.</td></tr>
       <tr><td><kbd>F</kbd></td><td>Attack or approach the nearest visible enemy.</td></tr>
       <tr><td><kbd>Q</kbd> <kbd>E</kbd> / right-drag</td><td>Rotate the camera. Mouse wheel or pinch to zoom.</td></tr>
       <tr><td>Right-click / long-press</td><td>Examine a tile.</td></tr>
@@ -4384,6 +4434,7 @@ const UI = (() => {
       <span>Gold collected</span><span>${G.stats.gold}</span>
       <span>Deepest floor</span><span>${G.stats.deepest}</span>
       </div>
+      ${h.ab ? `<h3>Power</h3><p>${ABILITIES[h.ab].n}: ${esc(ABILITIES[h.ab].d)}</p>` : ''}
       ${chalCount() ? `<h3>Challenges</h3><p>${Object.keys(G.ch).filter(k => G.ch[k]).map(k => CHALLENGES[k].n).join(', ')}</p>` : ''}
       <h3>Identified potions</h3><p>${kp.length ? kp.join(', ') : 'None yet.'}</p>
       <h3>Identified scrolls</h3><p>${ks.length ? ks.join(', ') : 'None yet.'}</p>
@@ -4451,6 +4502,7 @@ const UI = (() => {
   // ---------- targeting ----------
   function startTargeting(kind, it, slot){
     if (heroBusy()) return;
+    if (kind === 'blink'){ targeting = { kind, it: null, slot, foes: [], idx: 0 }; $('targetbar').hidden = false; $('targetbar').textContent = 'Blink Step: click a tile you can see up to 4 away · Esc to cancel'; update(); return; }
     if ((kind === 'zap') && it.ch < 1 && G.hero.sub !== 'conduit'){ log('It has no charges left.', 'warn'); return; }
     const foes = visibleFoes().filter(m => { const b = bolt(G.hero.x, G.hero.y, m.x, m.y); return b.ch === m; });
     targeting = { kind, it, slot, foes, idx: 0 };
@@ -4467,6 +4519,7 @@ const UI = (() => {
     cancelTargeting();
     const h = G.hero;
     if (x === h.x && y === h.y){ if (t.kind === 'throw'){ log('You can\'t throw at yourself.', 'warn'); } return; }
+    if (t.kind === 'blink'){ act(() => useAbility(x, y)); return; }
     const m = mobAt(L, x, y); if (m) V.lastTarget = m.id;
     const it = t.it;
     if (!findItem(it.id) && !(STACKABLE[it.k])) return;
@@ -4682,6 +4735,7 @@ const UI = (() => {
         case 'Equal': case 'NumpadAdd': Render.zoom(0.85); break;
         case 'Minus': case 'NumpadSubtract': Render.zoom(1.18); break;
         case 'KeyF': attackNearest(); break;
+        case 'KeyR': usePower(); break;
         case 'KeyC': openHeroInfo(); break;
         case 'KeyG': case 'Comma': { const c = G.hero.y*L.w + G.hero.x; if (L.heaps[c]) cellClick(G.hero.x, G.hero.y); break; }
         case 'Slash': case 'F1': e.preventDefault(); openHelp(); break;
@@ -4734,6 +4788,7 @@ const UI = (() => {
     $('b-wait').addEventListener('click', () => { stopAuto(); if (targeting) cancelTargeting(); act(heroWait); });
     $('b-rest').addEventListener('click', rest);
     $('b-inv').addEventListener('click', openInventory);
+    $('b-ab').addEventListener('click', usePower);
     document.querySelectorAll('.qs').forEach(b => b.addEventListener('click', () => useQuick(Number(b.dataset.q))));
     $('menubtn').addEventListener('click', openMenu);
     $('portrait').addEventListener('click', openHeroInfo);
@@ -4749,7 +4804,7 @@ const UI = (() => {
     drawIconTo($('b-inv').querySelector('canvas'), 'ui:bag');
   }
   function portrait(){ if (G) drawIconTo($('portraitc'), 'hero:' + G.hero.cls); }
-  return { update, logChanged, toast, fade, openWindow, closeWindow, openInventory, chooseItem, choosePath, interact, openBuy, openSell, openHelp, openMenu, endScreen, examine, tick, bind, cellClick, useQuick, portrait, stopAuto, get targeting(){ return targeting; }, walkTo };
+  return { update, logChanged, toast, fade, openWindow, closeWindow, openInventory, chooseItem, choosePath, chooseAbility, usePower, interact, openBuy, openSell, openHelp, openMenu, endScreen, examine, tick, bind, cellClick, useQuick, portrait, stopAuto, get targeting(){ return targeting; }, walkTo };
 })();
 // ============================================================
 // SOUND (tiny procedural synth)
