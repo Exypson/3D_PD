@@ -175,7 +175,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     await section('traps', async () => {
       await fresh('warrior');
       for (const t of Object.keys(TRAPS)){ clearMobs(); clearBlobs(); god(); const h = pd.G.hero;
-        const spot = near(h.x, h.y, 1).find(([x, y]) => x === h.x || y === h.y); const c = spot[1]*pd.L.w + spot[0];
+        const spot = openSpot(1)[0], c = spot[1]*pd.L.w + spot[0]; // a teleport trap can leave the hero boxed in, so start each trap from open ground
         pd.L.traps[c] = { t, hidden: false, active: true }; pd.V.trapDirty = true;
         await doAct(() => heroMove(spot[0] - h.x, spot[1] - h.y));
         check('trap: ' + t + ' triggers', !pd.L.traps[c].active);
