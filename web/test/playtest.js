@@ -44,6 +44,14 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
   await page.waitForSelector('#tcont');
   await page.click('#tcont');
   await page.waitForFunction(() => window.__pd.G && !window.__pd.G.over && document.querySelector('#title').hidden);
+  await page.evaluate(() => { saveGame(); showTitle(); });                     // menu: "Save and return to title"
+  await page.click('#tout');
+  await page.waitForSelector('#authf');
+  await auth('bob', 'secret2', 'in');
+  await page.waitForSelector('#tstart');
+  const bobBefore = await page.evaluate(() => localStorage.getItem('pd3d_save_v1:bob'));
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));     // closing the tab auto-saves
+  assert.strictEqual(await page.evaluate(() => localStorage.getItem('pd3d_save_v1:bob')), bobBefore, 'a signed-out player\'s run is never saved into the next player\'s slot');
   console.log('accounts: ok');
 
   // --- generator: exit reachable from entrance through walkable tiles only (no locked/secret doors) ---
@@ -171,13 +179,14 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     // monsters of every region, each fighting the hero, then dying
     await section('monsters', async () => {
       await fresh('warrior');
-      for (const d of [3, 8, 13, 18].filter(d => d < TO)){
+      for (const d of [3, 8, 13, 18, 23].filter(d => d < TO)){
         await goTo(d);
         const types = [...new Set([d-2, d-1, d, d+1].flatMap(x => mobRotation(x)))];
         for (const type of types){ clearMobs(); clearBlobs(); god();
-          const m = spawn(type, 2), t0 = m.time;
-          for (let i = 0; i < 10 && !gone(m); i++) await doAct(heroWait);
+          const m = spawn(type, 2), t0 = m.time, h = pd.G.hero; let hurtHero = 0;
+          for (let i = 0; i < 20 && !gone(m) && !hurtHero; i++){ await ready(); god(); h.shield = 0; const hp0 = h.hp; pd.act(heroWait); await ready(); hurtHero += Math.max(0, hp0 - h.hp); }
           check('monster: ' + type + ' acts', gone(m) || m.time > t0, [t0, m.time]);
+          check('monster: ' + type + ' hurts the hero', hurtHero > 0);
           kill(m); await ready();
           check('monster: ' + type + ' dies', gone(m)); }
       }
@@ -190,9 +199,10 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
         await goTo(d); clearBlobs();
         const L = pd.L, boss = L.mobs.find(m => MOBS[m.type].boss), h = pd.G.hero;
         const spot = near(boss.x, boss.y, 2)[0] || near(boss.x, boss.y, 1)[0]; h.x = spot[0]; h.y = spot[1]; pd.Render.sync(true); updateFOV();
-        wakeBoss(boss); const t0 = boss.time;
-        for (let i = 0; i < 25 && !gone(boss); i++){ await doAct(heroWait); clearBlobs(); }
+        wakeBoss(boss); const t0 = boss.time; let hurtHero = 0;
+        for (let i = 0; i < 25 && !gone(boss); i++){ await ready(); god(); h.shield = 0; const hp0 = h.hp; pd.act(heroWait); await ready(); hurtHero += Math.max(0, hp0 - h.hp); clearBlobs(); }
         check('boss: ' + boss.type + ' fights', boss.time > t0, [t0, boss.time]);
+        check('boss: ' + boss.type + ' hurts the hero', hurtHero > 0);
         for (const g of L.mobs.filter(m => MOBS[m.type].bossMinion)){ kill(g); check('boss guardian: ' + g.type + ' dies', gone(g)); }
         kill(boss); await ready();
         check('boss: ' + boss.type + ' dies and unseals the stairs', L.bossDefeated && L.tiles[L.exit] === T.EXIT);
@@ -258,6 +268,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       const G = pd.G, L = pd.L, h = G.hero;
       if (G.over) return pd.V.won ? { ok: G.depth === TO, why: 'victory', depth: G.depth, boss: true, hops, seen: [...seen] } : { ok: false, why: 'died: ' + G.deathCause, depth: G.depth };
       if (!document.getElementById('modal').hidden) pd.UI.closeWindow();
+      if (steps % 500 === 0) console.log('[bot] heartbeat step ' + steps + ' floor ' + G.depth + ' at ' + h.x + ',' + h.y + ' busy ' + pd.V.busy + ' np ' + pd.V.needProcess + ' seed ' + G.seed);
       if (pd.V.busy || pd.V.needProcess) continue;
       h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
       if (WALK){ for (const m of L.mobs) if (MOBS[m.type].boss && !L.bossDefeated) onBossDeath(m); // unseal the stairs as a kill would

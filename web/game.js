@@ -913,7 +913,7 @@ function itemInfo(it){
     case 'potion': desc = isTypeKnown(it) ? POTIONS[it.t].desc : 'An unidentified potion. Drink it or throw it to learn what it does. Harmful potions are best thrown.'; break;
     case 'scroll': desc = isTypeKnown(it) ? SCROLLS[it.t].desc : 'An unidentified scroll covered in runes. Read it to find out what it does.'; break;
     case 'ring': desc = isTypeKnown(it) ? RINGS[it.t].desc + ' Wear it for a while to learn its strength.' : 'An unidentified ring. Put it on to learn its power, but beware of curses.'; break;
-    case 'wand': { const d = wandDmg(it); stats = `${it.ch}/${it.chMax} charges` + (knownLv ? '' : ' (level unknown)') + (it.t !== 'blast' || true ? ` · ${knownLv ? d[0]+'–'+d[1] : '?'} damage` : ''); desc = WANDS[it.t].desc; break; }
+    case 'wand': { const d = wandDmg(it); stats = `${it.ch}/${it.chMax} charges` + (knownLv ? '' : ' (level unknown)') + ` · ${knownLv ? d[0]+'–'+d[1] : '?'} damage`; desc = WANDS[it.t].desc; break; }
     case 'food': stats = `Restores ${FOODS[it.t].sat} satiety`; desc = FOODS[it.t].desc; break;
     case 'bow': stats = `${bowMin(it)}–${bowMax(it)} damage · endless arrows`; desc = 'A bow that conjures arrows of spirit energy. Its damage grows as you level up.'; break;
     case 'cloak': stats = `${Math.floor(it.ch)}/${it.chMax} charge`; desc = 'Activate it to melt into the shadows and become invisible. Draining charge while active, it recharges over time.'; break;
@@ -931,7 +931,7 @@ function itemInfo(it){
 // ============================================================
 let G = null;     // serializable game state
 let L = null;     // current level
-const V = { fov: null, log: [], pendingStairs: null, pendingBuy: null, busy: false, needProcess: false, lastSave: 0, mind: false, dmapCache: new Map(), visibleFoes: new Set() };
+const V = { fov: null, log: [], pendingStairs: null, pendingBuy: null, busy: false, needProcess: false, lastSave: 0, mind: false, dmapCache: new Map() };
 
 const isHero = ch => ch && ch.type === 'hero';
 const isAlly = ch => ch && (ch.type === 'hero' || ch.ally);
@@ -1126,7 +1126,7 @@ function attackSkillOf(ch, target){
   return MOBS[ch.type].att;
 }
 function defenseSkillOf(ch, att){
-  if (ch.buffs.para || ch.buffs.frozen || ch.buffs.sleep || ch.buffs.rooted && false) return 0;
+  if (ch.buffs.para || ch.buffs.frozen || ch.buffs.sleep) return 0;
   if (isHero(ch)) return heroDefenseSkill();
   return MOBS[ch.type].def;
 }
@@ -1296,7 +1296,7 @@ function thiefSteal(m){
   let taken;
   if (it.qty > 1 && STACKABLE[it.k]){ it.qty--; taken = Object.assign({}, it, { id: ++G.nid, qty: 1 }); }
   else { h.inv.splice(h.inv.indexOf(it), 1); taken = it; }
-  m.stolen = taken; m.state = 'fleeing'; m.fleeT = 30;
+  m.stolen = taken; m.state = 'fleeing';
   log(TheName(m) + ' stole your ' + itemName(taken) + '!', 'bad');
 }
 
@@ -1348,7 +1348,7 @@ function tickBuffs(ch){
 const GAS_KEYS = ['toxic','para','frost'];
 function addGas(kind, c, vol){ if (c < 0) return; L[kind][c] += vol; V.blobDirty = true; }
 function addFire(c, t){ if (c < 0) return; const tile = L.tiles[c]; if (tile === T.WATER || TP.solid[tile]) return; L.fire[c] = Math.max(L.fire[c], t || 4); V.blobDirty = true; }
-function gasPermeable(c){ const t = L.tiles[c]; return TP.pass[t] || t === T.STATUE && false; }
+function gasPermeable(c){ return TP.pass[L.tiles[c]]; }
 function evolveBlobs(){
   const n = L.w*L.h, W = L.w;
   if (!V.tmp || V.tmp.length !== n) V.tmp = new Float32Array(n);
@@ -1540,7 +1540,6 @@ function teleportChar(ch, near){
     if (L.heaps[c] && L.heaps[c].some(i => i.price)) continue;
     if (inLockedRoom(x, y)) continue;
     if (near && cheb(x,y,near.x,near.y) > near.r) continue;
-    if (L.arena && near === undefined && isHero(ch) && false) continue;
     FX.puff(ch.x, ch.y);
     ch.x = x; ch.y = y; FX.teleport(ch);
     if (isHero(ch)){ log('You are teleported.', 'mag'); updateFOV(); }
@@ -1617,12 +1616,11 @@ function pickupAt(c){
   V.itemsDirty = true;
 }
 function dropItem(it){
-  const one = STACKABLE[it.k] ? it : it;
   if (isEquipped(it) && it.cursed){ log('You can\'t remove a cursed item!', 'bad'); return false; }
-  removeItem(one);
+  removeItem(it);
   if (it.k === 'cloak' && it.active){ it.active = false; delete G.hero.buffs.invis; }
-  addHeap(L, cellOf(G.hero), one); V.itemsDirty = true;
-  log('You drop ' + itemName(one, true) + '.');
+  addHeap(L, cellOf(G.hero), it); V.itemsDirty = true;
+  log('You drop ' + itemName(it, true) + '.');
   return 1;
 }
 
@@ -1741,7 +1739,7 @@ function heroMove(dx, dy){
 function onEnter(ch, c, voluntary){
   const tile = L.tiles[c];
   const flying = isHero(ch) ? !!ch.buffs.levit : !!MOBS[ch.type].flying;
-  if (tile === T.HGRASS && !flying){ L.tiles[c] = T.GRASS; V.tilesDirty = true; if (isHero(ch) && R.chance(0.08)) addHeap(L, c, mkItem('dew','dew',{known:true})); }
+  if (tile === T.HGRASS && !flying){ L.tiles[c] = T.GRASS; V.grassDirty = true; if (isHero(ch) && R.chance(0.08)) addHeap(L, c, mkItem('dew','dew',{known:true})); }
   if (L.web[c] && !flying){ L.web[c] = 0; V.blobDirty = true; addBuff(ch, 'rooted', 4); if (heroSees(ch.x,ch.y)) log((isHero(ch)?'You are':TheName(ch)+' is') + ' caught in a web!', isHero(ch)?'bad':'info'); }
   if (tile === T.WATER && ch.buffs.burning) delete ch.buffs.burning;
   if (isHero(ch)){
@@ -2019,12 +2017,12 @@ function zapWand(it, tx, ty){
   else if (wt === 'frost'){ damage(ch, R.normal(lo, hi), h, { delay: t }); if (!ch.dead){ if (ch.buffs.chill) addBuff(ch, 'frozen', 3); else addBuff(ch, 'chill', 4 + wl); } }
   else if (wt === 'blast'){
     damage(ch, R.normal(lo, hi), h, { delay: t });
-    if (!ch.dead && !MOBS[ch.type]?.immobile && !MOBS[ch.type]?.boss){
+    if (!ch.dead && !MOBS[ch.type]?.immobile && !MOBS[ch.type]?.boss && ch.type !== 'keeper'){
       const dx = Math.sign(ch.x - h.x), dy = Math.sign(ch.y - h.y);
       let dist = 2 + Math.floor(wl/2), moved = 0;
       while (dist-- > 0){
         const nx = ch.x + dx, ny = ch.y + dy;
-        if (!inb(L,nx,ny) || !TP.pass[L.tiles[ny*L.w+nx]] || charAt(nx,ny) || !diagOK(L, ch.x, ch.y, nx, ny)){ if (moved >= 0) { damage(ch, R.normal(lo, hi), h, { delay: t + 0.1 }); FX.shake(0.12); } break; }
+        if (!inb(L,nx,ny) || !TP.pass[L.tiles[ny*L.w+nx]] || charAt(nx,ny) || !diagOK(L, ch.x, ch.y, nx, ny)){ if (moved > 0) { damage(ch, R.normal(lo, hi), h, { delay: t + 0.1 }); FX.shake(0.12); } break; } // no throw, no collision (as in WandOfBlastWave.throwChar)
         ch.x = nx; ch.y = ny; moved++;
       }
       FX.move(ch);
@@ -2157,7 +2155,7 @@ function findEnemy(m){
     for (const o of L.mobs) if (!o.ally && o.state !== 'passive' && !(o.type === 'yog' && invulnerable(o))) consider(o);
     return best;
   }
-  if (!(G.hero.buffs.charm && false)) consider(G.hero);
+  consider(G.hero);
   for (const o of L.mobs) if (o.ally) consider(o);
   if (m.buffs.amok) for (const o of L.mobs) if (!o.ally && o.state !== 'passive') consider(o);
   return best;
@@ -2345,7 +2343,7 @@ function tenguBlink(m){
     const x = R.range(A.x0, A.x1), y = R.range(A.y0, A.y1);
     if (!TP.pass[L.tiles[y*L.w+x]] || charAt(x,y) || cheb(x,y,h.x,h.y) < 4) continue;
     FX.puff(m.x, m.y); m.x = x; m.y = y; FX.teleport(m);
-    if (heroSees(x,y) || true) log('Tengu vanishes in a puff of smoke!', 'warn');
+    log('Tengu vanishes in a puff of smoke!', 'warn');
     return;
   }
 }
@@ -2893,6 +2891,7 @@ const MDL = (() => {
   const geoCache = new Map(), matCache = new Map();
   let grainTex = null;
   function box(w, h, d){ const k = w+'|'+h+'|'+d; let g = geoCache.get(k); if (!g){ g = new THREE.BoxGeometry(w, h, d); geoCache.set(k, g); } return g; }
+  function geo(kind, a, b, c){ const k = kind+'|'+a+'|'+b+'|'+c; let g = geoCache.get(k); if (!g){ g = new THREE[kind + 'Geometry'](a, b, c); geoCache.set(k, g); } return g; } // shared like box(): models are rebuilt every floor
   function mat(color, opts){
     opts = opts || {};
     const k = color + '|' + (opts.em || 0) + '|' + (opts.rough || 0.8) + '|' + (opts.metal || 0) + '|' + (opts.op || 1);
@@ -2991,7 +2990,7 @@ const MDL = (() => {
     if (s.helm != null){ const hm = mat(s.helm, { metal: 0.6, rough: 0.4 }); head.add(mesh(box(hs+0.04, 0.1, hs+0.04), hm, 0, 0.2, 0)); head.add(mesh(box(0.03, 0.16, hs+0.04), hm, -hs/2-0.015, 0.12, 0)); head.add(mesh(box(0.03, 0.16, hs+0.04), hm, hs/2+0.015, 0.12, 0)); head.add(mesh(box(hs+0.04, 0.17, 0.03), hm, 0, 0.12, -hs/2-0.015)); if (s.plume) head.add(mesh(box(0.04, 0.08, 0.16), mat(s.plume), 0, 0.29, -0.02)); }
     if (s.hair != null){ const hm2 = mat(s.hair); head.add(mesh(box(hs+0.02, 0.16, 0.04), hm2, 0, 0.12, -hs/2-0.01)); head.add(mesh(box(hs+0.02, 0.05, hs+0.02), hm2, 0, 0.2, 0)); }
     if (s.beard != null) head.add(mesh(box(0.2, 0.1, 0.05), mat(s.beard), 0, 0.02, hs/2 + 0.02));
-    if (s.hat != null){ const cone = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.3, 4), mat(s.hat)); cone.rotation.y = Math.PI/4; cone.position.y = 0.36; head.add(cone); head.add(mesh(box(0.32, 0.03, 0.32), mat(s.hat), 0, 0.22, 0)); }
+    if (s.hat != null){ const cone = new THREE.Mesh(geo('Cone', 0.17, 0.3, 4), mat(s.hat)); cone.rotation.y = Math.PI/4; cone.position.y = 0.36; head.add(cone); head.add(mesh(box(0.32, 0.03, 0.32), mat(s.hat), 0, 0.22, 0)); }
     if (s.crown){ const gm = mat(0xe0b040, { metal: 0.8, rough: 0.3, em: 0x402a00, ei: 0.4 }); head.add(mesh(box(0.25, 0.05, 0.25), gm, 0, 0.23, 0)); for (const [x,z] of [[-0.1,-0.1],[0.1,-0.1],[-0.1,0.1],[0.1,0.1],[0,0.12]]) head.add(mesh(box(0.04, 0.07, 0.04), gm, x, 0.28, z)); }
     if (s.horns != null){ const hm = mat(s.horns); const h1 = mesh(box(0.04, 0.14, 0.04), hm, -0.08, 0.27, 0); h1.rotation.z = 0.4; const h2 = mesh(box(0.04, 0.14, 0.04), hm, 0.08, 0.27, 0); h2.rotation.z = -0.4; head.add(h1, h2); }
     if (s.visor != null) head.add(mesh(box(hs*0.75, 0.035, 0.02), mat(0x000000, { em: s.visor, ei: 2.2 }), 0, 0.12, hs/2 + 0.008));
@@ -3009,7 +3008,7 @@ const MDL = (() => {
       if (s.dual){ const t2 = tilt.clone(); t2.scale.x = -1; parts.handL.add(t2); }
     }
     if (s.bowBack){ const b = heldItem('bow:bow', 0.03); b.position.set(0, 0.14, -0.12); b.rotation.z = 0.3; torso.add(b); }
-    if (s.glow){ const orb = mesh(new THREE.SphereGeometry(0.045, 8, 6), mat(0x000000, { em: s.glow, ei: 2 }), 0, 0.02, 0.18); parts.handR.add(orb); }
+    if (s.glow){ const orb = mesh(geo('Sphere', 0.045, 8, 6), mat(0x000000, { em: s.glow, ei: 2 }), 0, 0.02, 0.18); parts.handR.add(orb); }
     root.scale.setScalar(s.scale || 1);
     return { root, parts, h: 0.75 * (s.scale || 1), kind: 'humanoid' };
   }
@@ -3088,18 +3087,18 @@ const MDL = (() => {
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
     if (s.mound){ // boss: a low, glossy sludge mound with ember pustules and a glowing maw
       const m = mat(s.c, { em: 0x16260c, ei: 1 }), glow = mat(0x000000, { em: s.c2, ei: 2.2 });
-      const b = mesh(new THREE.IcosahedronGeometry(0.34, 2), m, 0, 0.1, 0); b.scale.set(1.25, 0.8, 1.1); body.add(b);
+      const b = mesh(geo('Icosahedron', 0.34, 2), m, 0, 0.1, 0); b.scale.set(1.25, 0.8, 1.1); body.add(b);
       for (let i = 0; i < 7; i++){ const a = i / 7 * Math.PI * 2 + 0.3, r = 0.3 + (i % 2) * 0.05;
-        const l = mesh(new THREE.IcosahedronGeometry(0.07 + (i % 3) * 0.02, 1), m, Math.cos(a) * r * 1.2, 0.04, Math.sin(a) * r); l.scale.y = 0.6; body.add(l); }
-      for (const [x, z, r] of [[-0.12, -0.04, 0.06], [0.14, -0.08, 0.05], [0.02, -0.18, 0.045], [-0.2, 0.08, 0.045], [0.18, 0.1, 0.05], [0.0, 0.12, 0.055]]) body.add(mesh(new THREE.IcosahedronGeometry(r, 1), glow, x, 0.1 + 0.272*Math.sqrt(Math.max(0, 1 - (x/0.425)**2 - (z/0.374)**2)) + r*0.3, z)); // sit on the dome surface
+        const l = mesh(geo('Icosahedron', 0.07 + (i % 3) * 0.02, 1), m, Math.cos(a) * r * 1.2, 0.04, Math.sin(a) * r); l.scale.y = 0.6; body.add(l); }
+      for (const [x, z, r] of [[-0.12, -0.04, 0.06], [0.14, -0.08, 0.05], [0.02, -0.18, 0.045], [-0.2, 0.08, 0.045], [0.18, 0.1, 0.05], [0.0, 0.12, 0.055]]) body.add(mesh(geo('Icosahedron', r, 1), glow, x, 0.1 + 0.272*Math.sqrt(Math.max(0, 1 - (x/0.425)**2 - (z/0.374)**2)) + r*0.3, z)); // sit on the dome surface
       body.add(mesh(box(0.26, 0.035, 0.02), glow, 0, 0.16, 0.36));
       root.scale.setScalar(s.scale || 1);
       return { root, parts: { body, blob: b }, h: 0.35 * (s.scale||1), kind: 'blob' };
     }
-    const g = new THREE.IcosahedronGeometry(0.24, 1);
+    const g = geo('Icosahedron', 0.24, 1);
     const m = mat(s.c, { rough: 0.3, op: s.glowEye ? 1 : 0.88 });
     const b = mesh(g, m, 0, 0.2, 0); b.scale.set(1, 0.8, 1); body.add(b);
-    body.add(mesh(new THREE.IcosahedronGeometry(0.12, 0), mat(s.c2, { em: s.c2, ei: s.glowEye ? 0.8 : 0.3 }), 0, 0.18, 0));
+    body.add(mesh(geo('Icosahedron', 0.12, 0), mat(s.c2, { em: s.c2, ei: s.glowEye ? 0.8 : 0.3 }), 0, 0.18, 0));
     eyes(body, 0.28, 0.21, 0.07, s.glowEye ? 0xff3020 : 0x101010, 0.06);
     root.scale.setScalar(s.scale || 1);
     return { root, parts: { body, blob: b }, h: 0.45 * (s.scale||1), kind: 'blob' };
@@ -3122,7 +3121,7 @@ const MDL = (() => {
       for (const x of [-0.2, 0.2]){ body.add(mesh(box(0.1, 0.1, 0.42), tr, x, 0.05, 0)); for (let k = -2; k <= 2; k++) body.add(mesh(box(0.11, 0.02, 0.03), dk, x, 0.1, k*0.08)); }
       for (let k = 0; k < 3; k++) torso.add(mesh(box(0.05, 0.12, 0.02), glow, -0.08 + k*0.08, 0.1, 0.135));
       for (const x of [-0.1, 0.1]){ torso.add(mesh(box(0.05, 0.16, 0.05), dk, x, 0.38, -0.09)); torso.add(mesh(box(0.06, 0.02, 0.06), glow, x, 0.465, -0.09)); }
-      const drill = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.2, 6), mat(0x9a9aa0, { metal: 0.6, rough: 0.4 })); drill.rotation.x = Math.PI/2; drill.position.set(0, -0.24, 0.16); armR.add(drill);
+      const drill = new THREE.Mesh(geo('Cone', 0.06, 0.2, 6), mat(0x9a9aa0, { metal: 0.6, rough: 0.4 })); drill.rotation.x = Math.PI/2; drill.position.set(0, -0.24, 0.16); armR.add(drill);
       armL.add(mesh(box(0.14, 0.05, 0.14), m, 0, -0.26, 0.08));
     }
     root.scale.setScalar(s.scale || 1);
@@ -3152,8 +3151,8 @@ const MDL = (() => {
   }
   function elemental(s){
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-    const core = mesh(new THREE.IcosahedronGeometry(0.17, 0), mat(0x000000, { em: s.c, ei: 2.2 }), 0, 0, 0); body.add(core);
-    const inner = mesh(new THREE.IcosahedronGeometry(0.09, 0), mat(0x000000, { em: s.c2, ei: 3 }), 0, 0, 0); body.add(inner);
+    const core = mesh(geo('Icosahedron', 0.17, 0), mat(0x000000, { em: s.c, ei: 2.2 }), 0, 0, 0); body.add(core);
+    const inner = mesh(geo('Icosahedron', 0.09, 0), mat(0x000000, { em: s.c2, ei: 3 }), 0, 0, 0); body.add(inner);
     const frags = [];
     for (let i = 0; i < 6; i++){ const f = mesh(box(0.07, 0.07, 0.07), mat(0x000000, { em: i%2 ? s.c : s.c2, ei: 1.8 }), 0, 0, 0); f.userData.ph = i/6*Math.PI*2; body.add(f); frags.push(f); }
     body.position.y = 0.45;
@@ -3169,8 +3168,8 @@ const MDL = (() => {
   }
   function eyeM(s){
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-    const ball = mesh(new THREE.SphereGeometry(0.22, 12, 10), mat(s.c, { rough: 0.5 }), 0, 0, 0); body.add(ball);
-    const iris = mesh(new THREE.SphereGeometry(0.1, 10, 8), mat(0x000000, { em: s.c2, ei: 2 }), 0, 0, 0.15); body.add(iris);
+    const ball = mesh(geo('Sphere', 0.22, 12, 10), mat(s.c, { rough: 0.5 }), 0, 0, 0); body.add(ball);
+    const iris = mesh(geo('Sphere', 0.1, 10, 8), mat(0x000000, { em: s.c2, ei: 2 }), 0, 0, 0.15); body.add(iris);
     body.add(mesh(box(0.04, 0.09, 0.02), mat(0x000000), 0, 0, 0.245));
     const tents = [];
     for (let i = 0; i < 5; i++){ const p = pivot(Math.cos(i/5*6.28)*0.12, -0.15, Math.sin(i/5*6.28)*0.12); p.add(mesh(box(0.04, 0.22, 0.04), mat(darker(s.c, 0.7)), 0, -0.11, 0)); body.add(p); tents.push(p); }
@@ -3196,7 +3195,7 @@ const MDL = (() => {
   function fist(s){ // final boss's guardians: a floating claw of three curved talons around a glowing core, with a plated collar
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
     const m = mat(s.c, { metal: 0.4, rough: 0.6 }), dk = mat(darker(s.c, 0.7)), glow = mat(0x000000, { em: s.c2, ei: 1.9 });
-    const core = mesh(new THREE.IcosahedronGeometry(0.13, 1), glow, 0, 0, 0); body.add(core);
+    const core = mesh(geo('Icosahedron', 0.13, 1), glow, 0, 0, 0); body.add(core);
     for (let i = 0; i < 6; i++){ const a = i / 6 * Math.PI * 2; const pl = mesh(box(0.12, 0.05, 0.06), dk, Math.cos(a) * 0.17, 0.12, Math.sin(a) * 0.17); pl.rotation.y = -a; body.add(pl); }
     for (let i = 0; i < 3; i++){ const a = i / 3 * Math.PI * 2 + 0.5; const t = pivot(Math.cos(a) * 0.16, 0.02, Math.sin(a) * 0.16);
       const s1 = mesh(box(0.07, 0.24, 0.07), m, 0, -0.12, 0), s2 = mesh(box(0.05, 0.16, 0.05), m, 0, -0.3, 0.04); s2.rotation.x = 0.5;
@@ -3208,9 +3207,9 @@ const MDL = (() => {
     const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
     const m = mat(s.c, { metal: 0.4, rough: 0.6 }), glow = mat(0x000000, { em: s.c2, ei: 2 }), stone = mat(darker(s.c, 1.6));
     for (let i = 0; i < 7; i++){ const a = i / 7 * Math.PI * 2; const st = mesh(box(0.16, 0.34 + (i % 3) * 0.1, 0.12), stone, Math.cos(a) * 0.82, 0.17, Math.sin(a) * 0.82); st.rotation.y = -a; st.rotation.z = (i % 2 ? 0.12 : -0.1); body.add(st); }
-    const mass = new THREE.Mesh(new THREE.OctahedronGeometry(0.55, 0), m); mass.scale.set(1, 1.7, 0.8); mass.position.y = 0.95; body.add(mass);
+    const mass = new THREE.Mesh(geo('Octahedron', 0.55, 0), m); mass.scale.set(1, 1.7, 0.8); mass.position.y = 0.95; body.add(mass);
     for (const [y, r, w] of [[0.7, 0.4, 0.5], [0.95, -0.3, 0.42], [1.2, 0.5, 0.3], [0.85, 1.2, 0.34]]){ const f = mesh(box(w, 0.035, 0.02), glow, 0, y, 0.36 - Math.abs(y - 0.95) * 0.3); f.rotation.z = r; body.add(f); }
-    const core = mesh(new THREE.IcosahedronGeometry(0.16, 1), glow, 0, 2.0, 0); body.add(core);
+    const core = mesh(geo('Icosahedron', 0.16, 1), glow, 0, 2.0, 0); body.add(core);
     const ring = new THREE.Group(); ring.position.y = 1.15; ring.scale.setScalar(3.4); body.add(ring);
     const frags = []; for (let i = 0; i < 6; i++){ const f = mesh(box(0.025, 0.05, 0.012), glow, 0, 0, 0); f.userData.ph = i / 6 * Math.PI * 2; ring.add(f); frags.push(f); }
     return { root, parts: { body, mass, core, frags }, h: 2.1, kind: 'yog', light: s.c2 };
@@ -3254,7 +3253,7 @@ const Render = (() => {
   const U = { uFog:{ value:null }, uMapSize:{ value:new THREE.Vector2(1,1) }, uHero:{ value:new THREE.Vector3() }, uCamDir:{ value:new THREE.Vector2(0,1) }, uTime:{ value:0 } };
   let fogTex = null, fogData = null, fogCur = null, fogW = 0, fogH = 0;
   let floorMesh = null, wallMesh = null, waterMesh = null, grassMesh = null, trapMesh = null, warnMesh = null, webMesh = null, cursorMesh = null;
-  let doorObjs = [], torchObjs = [], barrier = null;
+  let doorObjs = [], torchObjs = [], barrier = null, barrierMat = null;
   let mats = null; let curRegion = -1;
   const models = new Map();
   const heapObjs = new Map();
@@ -3475,7 +3474,7 @@ const Render = (() => {
   function rebuildStatic(Lv){
     for (const o of [floorMesh, wallMesh, waterMesh]) disposeObj(o);
     for (const d of doorObjs) levelG.remove(d.pivot); doorObjs = [];
-    for (const t of torchObjs) levelG.remove(t.g); torchObjs = [];
+    for (const t of torchObjs){ levelG.remove(t.g); t.fl.material.dispose(); t.core.material.dispose(); } torchObjs = [];
     if (barrier){ levelG.remove(barrier); barrier = null; }
     const F = Buf(), Wb = Buf(), Wa = Buf();
     const W = Lv.w, H = Lv.h, t = Lv.tiles;
@@ -3532,7 +3531,7 @@ const Render = (() => {
         vface(F, 'S', ix0, ix1, -0.9, 0, z0, TILE.PIT, 0.5, 0.0);
         hquad(F, ix0, z0, ix1, z0 + 0.02, -0.88, TILE.VOID);
         if (v === T.SEALED){
-          barrier = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.9), new THREE.MeshBasicMaterial({ color: 0xb070ff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false }));
+          barrier = new THREE.Mesh(MDL.box(0.9, 1.1, 0.9), barrierMat || (barrierMat = new THREE.MeshBasicMaterial({ color: 0xb070ff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false })));
           barrier.position.set(x, 0.55, y); levelG.add(barrier);
         }
         continue;
@@ -3602,7 +3601,7 @@ const Render = (() => {
     const g = toGeo(B); g._shared = true; doorGeoCache[k] = g; return g;
   }
   function rebuildGrass(Lv){
-    if (grassMesh){ levelG.remove(grassMesh); grassMesh.dispose && grassMesh.dispose(); grassMesh = null; }
+    if (grassMesh){ levelG.remove(grassMesh); grassMesh.geometry.dispose(); grassMesh.dispose && grassMesh.dispose(); grassMesh = null; }
     const cells = [];
     for (let c = 0; c < Lv.w*Lv.h; c++) if (Lv.tiles[c] === T.HGRASS) cells.push(c);
     if (!cells.length){ V.grassDirty = false; return; }
@@ -3630,7 +3629,7 @@ const Render = (() => {
     V.grassDirty = false;
   }
   function rebuildTraps(Lv){
-    if (trapMesh){ levelG.remove(trapMesh); trapMesh = null; }
+    if (trapMesh){ levelG.remove(trapMesh); trapMesh.geometry.dispose(); trapMesh = null; }
     const list = [];
     for (const k in Lv.traps){ const tr = Lv.traps[k]; if (!tr.hidden) list.push([Number(k), tr]); }
     V.trapDirty = false;
@@ -3707,6 +3706,8 @@ const Render = (() => {
     const dx = nx - a.fx, dz = ny - a.fz; if (Math.abs(dx) + Math.abs(dz) > 0.01) a.faceT = Math.atan2(dx, dz);
   }
   // ---------- items ----------
+  const itemShadowGeo = new THREE.CircleGeometry(0.2, 12), itemShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false });
+  const priceRingGeo = new THREE.RingGeometry(0.3, 0.36, 24), priceRingMat = new THREE.MeshBasicMaterial({ color: 0xf3d062, transparent: true, opacity: 0.6, depthWrite: false });
   function syncItems(force){
     if (!force) return;
     V.itemsDirty = false;
@@ -3722,9 +3723,9 @@ const Render = (() => {
       o = new THREE.Group(); o.userData.key = key;
       const vm = new THREE.Mesh(MDL.voxelGeometry(itemIconKey(top)), mats.items); vm.scale.setScalar(top.k === 'gold' ? 0.024 : 0.028);
       o.add(vm); o.userData.spin = vm;
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.2, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+      const shadow = new THREE.Mesh(itemShadowGeo, itemShadowMat);
       shadow.rotation.x = -Math.PI/2; shadow.position.y = 0.01; o.add(shadow);
-      if (top.price){ const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.36, 24), new THREE.MeshBasicMaterial({ color: 0xf3d062, transparent: true, opacity: 0.6, depthWrite: false })); ring.rotation.x = -Math.PI/2; ring.position.y = 0.015; o.add(ring); }
+      if (top.price){ const ring = new THREE.Mesh(priceRingGeo, priceRingMat); ring.rotation.x = -Math.PI/2; ring.position.y = 0.015; o.add(ring); }
       if (heap.length > 1){ const sm = new THREE.Mesh(MDL.box(0.16, 0.08, 0.16), MDL.mat(0x6a5a40)); sm.position.set(0.18, 0.04, 0.12); o.add(sm); }
       const x = c % L.w, y = (c / L.w) | 0;
       o.position.set(x, cellHeight(L, x, y), y);
@@ -3865,14 +3866,9 @@ const Render = (() => {
       if (P.core) { const s = 1 + Math.sin(a.ph*6)*0.08; P.core.scale.setScalar(s); }
       if (P.tents) P.tents.forEach((t2, i) => t2.rotation.x = Math.sin(a.ph*2 + i)*0.3);
       if (P.blob){ const s = 1 + Math.sin(a.ph*3)*0.05 + (ch.pumping ? Math.sin(a.ph*20)*0.08 + 0.15 : 0); P.blob.scale.set(s, 0.8/s + (walking ? 0.1 : 0), s); }
-      if (P.iris && ha) { /* eye looks at hero */ }
       if (a.kind === 'eye' || a.kind === 'bat' || a.kind === 'elemental' || a.kind === 'fist') P.body.position.y = (a.kind === 'bat' ? 0.45 : (a.kind === 'eye' ? 0.55 : (a.kind === 'fist' ? 0.55 : 0.45))) + Math.sin(a.ph*2.2)*0.06;
       if (P.body && a.kind === 'humanoid' || a.kind === 'hero') P.body.position.y = walking ? 0 : Math.sin(a.ph*2)*0.008;
       if (P.eyes) P.eyes.forEach((e, i) => e.rotation.y = Math.sin(a.ph + i)*0.4);
-      // status pose
-      let tiltX = 0;
-      if (ch.state === 'sleeping' && !isHero(ch)) tiltX = 0;
-      if (ch.buffs && (ch.buffs.para || ch.buffs.frozen)) tiltX = 0;
       // death
       if (a.dead){
         a.deadT += dt;
@@ -3884,12 +3880,10 @@ const Render = (() => {
       } else if (a.spawnT < 1){ a.spawnT = Math.min(1, a.spawnT + dt/0.35); a.root.scale.setScalar(a.spawnT * (a.baseScale || 1)); }
       a.root.position.set(a.x + ox, a.y + hop + oy, a.z + oz);
       a.root.rotation.y = a.face;
-      if (a.root.rotation.x !== tiltX) a.root.rotation.x = tiltX;
       // visibility
       const cell = ch.y*L.w + ch.x;
       const vis = isHero(ch) || (V.fov && V.fov[cell]) || V.mind || a.dead;
       a.root.visible = !!vis;
-      // frozen tint via scale shiver
       // overlays
       if (!isHero(ch) && vis && !a.dead){
         const showBar = (ch.hp < ch.ht && !MOBS[ch.type].boss && ch.type !== 'keeper') || ch.ally;
@@ -4477,13 +4471,11 @@ const UI = (() => {
     if (Math.abs(dx) > 1 || Math.abs(dy) > 1){ path = null; return; }
     const ok = act(() => heroMove(dx, dy));
     if (!ok){ path = null; return; }
-    if (L.tiles[c] === T.DOOR && false) {}
     // interrupts
     const foes = visibleFoes();
     const newFoe = foes.some(m => !prevFoes.has(m.id) && m.state !== 'sleeping');
     for (const m of foes) prevFoes.add(m.id);
     if (G.hero.hp < prevHP || newFoe || G.over || V.busy || !$('modal').hidden){ if (path && !path.chase) path = null; }
-    if (path && path.chase && G.hero.hp < prevHP - 0){ /* keep chasing */ }
     prevHP = G.hero.hp;
     if (path && !path.cells.length && !path.chase) path = null;
   }
@@ -4679,8 +4671,7 @@ const Sound = (() => {
     zap: () => tone(1200, 200, 0.22, 'sawtooth', 0.15), throw: () => noise(0.12, 0.12, 2000), bow: () => tone(900, 300, 0.1, 'triangle', 0.18),
     shatter: () => { noise(0.2, 0.3, 3000); tone(2000, 3000, 0.05, 'sine', 0.1); }, trap: () => { tone(880, 440, 0.15, 'square', 0.2); tone(660, 330, 0.2, 'square', 0.15, 0.1); },
     secret: () => { tone(784, 784, 0.1, 'triangle', 0.16); tone(1046, 1046, 0.14, 'triangle', 0.16, 0.1); }, unlock: () => { tone(300, 600, 0.06, 'square', 0.2); noise(0.08, 0.2, 2000, 0.05); },
-    boss: () => { tone(110, 55, 1.0, 'sawtooth', 0.3); tone(165, 82, 1.0, 'sawtooth', 0.2); }, boom: () => { noise(0.5, 0.5, 100); tone(120, 40, 0.5, 'sine', 0.4); },
-    descend: () => { tone(400, 100, 0.4, 'triangle', 0.2); }
+    boss: () => { tone(110, 55, 1.0, 'sawtooth', 0.3); tone(165, 82, 1.0, 'sawtooth', 0.2); }, boom: () => { noise(0.5, 0.5, 100); tone(120, 40, 0.5, 'sine', 0.4); }
   };
   return {
     get muted(){ return muted; },
@@ -4697,9 +4688,8 @@ const Sound = (() => {
 // ============================================================
 // SAVE / LOAD / RUNS
 // ============================================================
-const DEMO_MAX_DEPTH = 26; // 26 is the Amulet floor (no stairs down), so the full game is open // demo ships region 1 only; raise as each 5-floor region passes testing
+const DEMO_MAX_DEPTH = 26; // 26 is the Amulet floor (no stairs down), so the full game is open; lower it to stop the descent early
 const saveKey = () => 'pd3d_save_v1:' + Auth.user(), rankKey = () => 'pd3d_ranks_v1:' + Auth.user();
-const ARR_KEYS = ['tiles','visited','fire','toxic','para','frost','web'];
 function packLevel(Lv){
   const o = Object.assign({}, Lv);
   o.tiles = Array.from(Lv.tiles, v => String.fromCharCode(48 + v)).join('');
@@ -4798,7 +4788,7 @@ function showTitle(){
   });
   t.querySelector('#tstart').addEventListener('click', () => { Sound.unlock(); newGame(chosen); });
   t.querySelector('#thelp').addEventListener('click', () => UI.openHelp());
-  t.querySelector('#tout').addEventListener('click', () => { Auth.signOut(); showTitle(); });
+  t.querySelector('#tout').addEventListener('click', () => { G = null; Auth.signOut(); showTitle(); }); // drop the loaded run, or the next player's auto-save writes it into their slot
   const tc = t.querySelector('#tcont');
   if (tc){ tc.addEventListener('click', () => { Sound.unlock(); try { startGameFrom(loadSave(localStorage.getItem(saveKey()))); log('Welcome back. You are on floor ' + G.depth + '.', 'info'); } catch (e) { console.error(e); deleteSave(); showTitle(); } }); tc.focus(); }
   // background scene: preview level behind the title
