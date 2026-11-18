@@ -171,6 +171,20 @@ const MOBS = {
              model:{k:'humanoid', c:0x7a5a2a, c2:0xd8c070, head:0xd8b08c, beard:0x9a7a5a, hat:0x5a3a1a, scale:0.95}, desc:'A merchant who somehow does business this deep. Walk onto an item to buy it, or tap the shopkeeper to sell.' },
   cauldron:{ name:'Alchemy Cauldron', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true,
              model:{k:'cauldron', c2:0x7cf06a}, desc:'A bubbling iron cauldron left by some earlier delver. Walk into it to brew three items into something new.' },
+  lamplighter: { name:'Drowned Lamplighter', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true, npc:true,
+             model:{k:'humanoid', c:0x4a6a78, c2:0x2e4450, head:0x9ab8c0, hood:0x3a5664, eye:0xbfe8ff, robe:true, glow:0xffd27a, scale:0.95}, desc:'The pale ghost of the sewers\' old caretaker, still clutching a lantern that will not light.' },
+  cartographer: { name:'Escaped Cartographer', hp:30, def:6, att:0, dmg:[0,0], dr:[0,1], exp:0, max:0, passive:true, npc:true,
+             model:{k:'humanoid', c:0x8a6a3a, c2:0x5a4a3a, head:0xd8b08c, hair:0x6a4a2a, belt:0x4a3020, scale:0.92}, desc:'A mapmaker who slipped out of a cell and has been hiding ever since, sketching every corridor.' },
+  foreman: { name:'Mine Foreman', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true, npc:true,
+             model:{k:'humanoid', c:0x6a5a40, c2:0x3a3028, head:0xc89a70, helm:0xd0a040, beard:0x8a5a3a, belt:0x3a2a1a, weapon:'mace', scale:0.9}, desc:'A stout foreman whose crew fled the caves, leaving a debt and three veins of ore unmined.' },
+  scholar: { name:'Bound Scholar', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true, npc:true,
+             model:{k:'humanoid', c:0x3a2a50, c2:0x2a1e3a, head:0xd8c8b0, hood:0x2a1e3a, eye:0x9fe0ff, robe:true, collar:0x8a8a90, glow:0x9fe0ff}, desc:'A scholar caught in the chains of their own binding spell, surrounded by humming wands.' },
+  bargainer: { name:'The Bargainer', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true, npc:true,
+             model:{k:'humanoid', c:0x2a0e14, c2:0x1a080c, head:0x1a0a0e, eye:0xff4a3a, horns:0x3a2a20, robe:true, core:0xffb040, scale:1.05}, desc:'A smiling figure in red who trades in health, gold and fate. Every deal has a price.' },
+  brazier: { name:'Cold Brazier', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true,
+             model:{k:'brazier'}, desc:'An iron brazier on a stone post. The lamplighter wants it burning again.' },
+  ore: { name:'Glowing Ore', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true,
+             model:{k:'ore', c2:0x5ff0e0}, desc:'A vein of ore that glows from within. Mining it is loud work.' },
 };
 
 const MOB_ROTATION = {
@@ -376,6 +390,53 @@ function brew(items){ // items: three pack items; a stack may appear as often as
   V.itemsDirty = true;
   return out;
 }
+const QUESTS = { 2:'lamplighter', 7:'cartographer', 12:'foreman', 17:'scholar', 22:'bargainer' };
+function questOf(k){ const q = G.quests || (G.quests = {}); return q[k] || (q[k] = { state: 'new' }); }
+function placeQuest(L, rooms, depth){
+  const key = QUESTS[depth]; const cand = rooms.filter(r => r.type === 'normal'); if (!key || !cand.length) return;
+  const put = type => { const c = freeCellInRoom(L, R.pick(cand)); if (c < 0 || mobAt(L, c % L.w, (c / L.w) | 0)) return null; const m = mkMob(type, c % L.w, (c / L.w) | 0); m.state = 'passive'; L.mobs.push(m); return m; };
+  if (!put(key)) return;
+  L.quest = key;
+  if (key === 'lamplighter') for (let i = 0; i < 3; i++) put('brazier');
+  if (key === 'foreman') for (let i = 0; i < 3; i++) put('ore');
+}
+function giveItem(it){ identify(it); if (!collect(it)) addHeap(L, cellOf(G.hero), it); V.itemsDirty = true; }
+function npcLeaves(m){ FX.puff(m.x, m.y); const i = L.mobs.indexOf(m); if (i >= 0) L.mobs.splice(i, 1); }
+function lightBrazier(m){
+  const q = questOf('lamplighter');
+  if (m.lit){ log('The brazier already burns.', 'info'); return false; }
+  if (q.state !== 'active'){ log('A cold, empty brazier. Someone must want it lit.', 'info'); return false; }
+  m.lit = true; q.lit = (q.lit || 0) + 1; FX.burst(m.x, m.y, 0xffb040, 16); Sound.play('secret');
+  log(q.lit >= 3 ? 'The last brazier flares to life. The lamplighter will want to know.' : 'The brazier flares to life. (' + q.lit + '/3)', 'good');
+  return 1;
+}
+function mineOre(m){
+  const q = questOf('foreman');
+  if (q.state !== 'active'){ log('A vein of glowing ore. Without a reason to dig, you leave it be.', 'info'); return false; }
+  m.hits = (m.hits || 0) + 1; FX.burst(m.x, m.y, 0x5ff0e0, 8); FX.shake(0.08); Sound.play('swing');
+  for (const o of L.mobs) if (!o.ally && !MOBS[o.type].passive && cheb(o.x, o.y, m.x, m.y) <= 8) alertMob(o, G.hero);
+  if (m.hits < 3){ log('You chip at the ore. The noise echoes through the caves.', 'warn'); return 1; }
+  q.ore = (q.ore || 0) + 1; npcLeaves(m);
+  log(q.ore >= 3 ? 'You pry loose the last chunk of ore. Time to see the foreman.' : 'You pry loose a chunk of glowing ore. (' + q.ore + '/3)', 'good');
+  return 1;
+}
+function reforge(target, source){ // the foreman moves one item's upgrades onto another of the same kind
+  if (!target || !source || target === source || target.k !== source.k || !['weapon', 'armor'].includes(target.k)) return false;
+  target.lvl += Math.max(0, source.lvl); removeItem(source); identify(target); target.cursed = false;
+  if (WEAPONS[target.t] && WEAPONS[target.t].staff){ target.chMax = staffMax(target); }
+  log('The foreman hammers your ' + baseName(source) + ' into your ' + baseName(target) + '. It is now ' + itemName(target) + '.', 'good'); FX.levelUp(G.hero);
+  return true;
+}
+const canUpgrade = i => ['weapon', 'armor', 'ring', 'wand', 'bow', 'cloak'].includes(i.k);
+function upgradeItem(sel){
+  sel.lvl++; if (sel.cursed){ sel.cursed = false; log('The curse on your ' + baseName(sel) + ' is dispelled.', 'good'); }
+  if (sel.k === 'wand'){ sel.chMax = wandMax(sel); sel.ch = Math.min(sel.ch + 1, sel.chMax); }
+  if (sel.k === 'weapon' && WEAPONS[sel.t].staff){ sel.chMax = staffMax(sel); sel.ch = Math.min(sel.ch + 1, sel.chMax); }
+  if (sel.k === 'ring') updateHT();
+  log('Your ' + baseName(sel) + ' glows brightly.', 'good'); FX.levelUp(G.hero);
+}
+function bargainBlood(){ const h = G.hero; h.htMul = (h.htMul || 1) * 0.8; h.str += 2; updateHT(); questOf('bargainer').state = 'done'; log('Something leaves you. Your arms feel like iron. (+2 STR, less health)', 'mag'); FX.levelUp(h); }
+function bargainGold(sel){ const h = G.hero; if (h.gold < 300 || !sel || !canUpgrade(sel)) return false; h.gold -= 300; upgradeItem(sel); questOf('bargainer').state = 'done'; return true; }
 const chal = k => !!(G && G.ch && G.ch[k]);
 const chalCount = () => G && G.ch ? Object.keys(G.ch).filter(k => G.ch[k]).length : 0;
 const BUFF_INFO = {
@@ -550,6 +611,7 @@ function genRegular(depth){
     for (let i = 0; i < n; i++){ const c = freeCellInRoom(L, secret); if (c >= 0) addHeap(L, c, R.chance(0.4) ? mkGold(depth) : randomItem(depth)); }
   }
   if (L.shop){ const sr = rooms.find(r => r.type === 'shop'); fillShop(L, sr, depth); }
+  placeQuest(L, rooms, depth);
   if (depth % 5 === 3){ const rm = R.pick(rooms.filter(r => r.type === 'normal')); const c = rm ? freeCellInRoom(L, rm) : -1; if (c >= 0){ const cm = mkMob('cauldron', c % W, (c / W) | 0); cm.state = 'passive'; L.mobs.push(cm); L.cauldron = true; } }
   // mobs
   const nMobs = Math.round((3 + (depth % 5) + R.int(3)) * (chal('swarm') ? 1.5 : 1));
@@ -1119,7 +1181,7 @@ function ringLevel(type){ const h = G.hero; let s = 0; for (const k of ['ring1',
 function heroStr(){ return G.hero.str + ringLevel('might'); }
 function updateHT(){
   const h = G.hero; const old = h.ht;
-  h.ht = Math.round((20 + 5*(h.lvl-1)) * (1 + 0.035*ringLevel('might')) * (chal('glass') ? 0.5 : 1));
+  h.ht = Math.round((20 + 5*(h.lvl-1)) * (1 + 0.035*ringLevel('might')) * (chal('glass') ? 0.5 : 1) * (h.htMul || 1));
   if (h.ht > old) h.hp += h.ht - old;
   h.hp = Math.min(h.hp, h.ht);
 }
@@ -1299,7 +1361,7 @@ function defenseProc(def, att, dmg){
   return dmg;
 }
 function invulnerable(ch){
-  if (MOBS[ch.type] && MOBS[ch.type].passive) return true;
+  if (MOBS[ch.type] && MOBS[ch.type].passive && !ch.escort) return true;
   if (ch.type === 'yog') return L.mobs.some(m => !m.dead && (m.type === 'fistb' || m.type === 'fistr'));
   return false;
 }
@@ -1353,10 +1415,12 @@ function die(ch, src){
   }
   ch.dead = true;
   const i = L.mobs.indexOf(ch); if (i >= 0) L.mobs.splice(i, 1);
+  if (ch.escort){ questOf('cartographer').state = 'failed'; log('The cartographer falls. Their maps scatter into the dark.', 'bad'); }
   FX.die(ch);
   if (!ch.ally){
     if (heroSees(ch.x, ch.y)) log(TheName(ch) + ' is slain.', 'info');
     G.stats.kills++;
+    if (G.depth === 17 && G.quests && G.quests.scholar && G.quests.scholar.state === 'active') G.quests.scholar.kills = (G.quests.scholar.kills || 0) + 1;
     if (G.hero.ab) G.hero.abCh = Math.min(100, (G.hero.abCh || 0) + 10);
     if (!ch.noexp && G.hero.lvl <= d.max) earnExp(d.exp);
     const c = cellOf(ch);
@@ -1721,6 +1785,14 @@ function changeLevel(dir, toDepth){
   UI.fade(true, dir === 'down' ? 'Descending…' : (dir === 'up' ? 'Ascending…' : 'Falling…'), () => {
     const h = G.hero;
     // allies don't follow
+    const esc = L.mobs.find(m => m.escort && !m.dead);
+    if (dir === 'down' && esc){
+      if (cheb(esc.x, esc.y, h.x, h.y) <= 2){
+        questOf('cartographer').state = 'done'; npcLeaves(esc); G.mapNext = true;
+        for (let i = 0; i < 2; i++) giveItem(mkScroll('mapping'));
+        log('"You got me out! Take my spare maps, and here: the next floor, sketched from memory."', 'good');
+      } else { questOf('cartographer').state = 'failed'; log('You left the cartographer behind.', 'bad'); }
+    }
     L.mobs = L.mobs.filter(m => m.type !== 'image');
     G.depth = toDepth || (G.depth + (dir === 'down' ? 1 : -1));
     if (!G.levels[G.depth]) G.levels[G.depth] = generateLevel(G.depth);
@@ -1733,6 +1805,7 @@ function changeLevel(dir, toDepth){
     if (G.envTime < h.time) G.envTime = Math.floor(h.time);
     G.stats.deepest = Math.max(G.stats.deepest, G.depth);
     V.dmapCache.clear();
+    if (G.mapNext && dir === 'down'){ G.mapNext = false; for (let c = 0; c < L.w*L.h; c++){ if (L.tiles[c] !== T.EMPTY) L.visited[c] = 1; const tr = L.traps[c]; if (tr) tr.hidden = false; } }
     updateFOV();
     Render.buildLevel(L);
     Render.sync(true);
@@ -1746,6 +1819,7 @@ function changeLevel(dir, toDepth){
       else if (G.depth === 26) log('A strange stillness hangs in the air. You have reached the bottom.', 'mag');
       else if (L.shop) log('You hear the clinking of coins. A shop is on this floor.', 'good');
       if (L.cauldron) log('Something is bubbling nearby. An alchemy cauldron is on this floor.', 'good');
+      if (L.quest) log('Someone on this floor is waiting for help.', 'mag');
     }
     log((dir === 'up' ? 'You ascend to floor ' : 'You descend to floor ') + G.depth + '.', 'info');
     L.entered = true;
@@ -1973,12 +2047,7 @@ function readScroll(it){
     return false;
   };
   switch (t){
-    case 'upgrade': return pick('Upgrade an item', i => ['weapon','armor','ring','wand','bow','cloak'].includes(i.k), sel => {
-      sel.lvl++; if (sel.cursed){ sel.cursed = false; log('The curse on your ' + baseName(sel) + ' is dispelled.', 'good'); }
-      if (sel.k === 'wand'){ sel.chMax = wandMax(sel); sel.ch = Math.min(sel.ch + 1, sel.chMax); }
-      if (sel.k === 'weapon' && WEAPONS[sel.t].staff){ sel.chMax = staffMax(sel); sel.ch = Math.min(sel.ch + 1, sel.chMax); }
-      if (sel.k === 'ring') updateHT();
-      log('Your ' + baseName(sel) + ' glows brightly.', 'good'); FX.levelUp(h); });
+    case 'upgrade': return pick('Upgrade an item', canUpgrade, upgradeItem);
     case 'identify': return pick('Identify an item', i => !(i.known && isTypeKnown(i)) && ['weapon','armor','ring','wand','potion','scroll'].includes(i.k), sel => {
       identify(sel); log('It is ' + itemName(sel, true) + '.', 'mag'); });
     case 'transmute': return pick('Transmute an item', i => ['weapon','armor','ring','wand','potion','scroll'].includes(i.k) && !(i.k==='weapon' && WEAPONS[i.t].unique) && !isEquipped(i), sel => {
@@ -2282,6 +2351,7 @@ function mobAct(m){
     else { m.time += 1; return; }
   }
   if (d.immobile){ yogAct(m); return; }
+  if (m.escort){ const h = G.hero; if (cheb(m.x, m.y, h.x, h.y) > 1 && stepToward(m, h.x, h.y)) return; m.time += 1; return; }
   if (m.ally){ allyAct(m); return; }
   const e = findEnemy(m);
   if (m.state === 'sleeping'){
@@ -3330,6 +3400,23 @@ const MDL = (() => {
     const brew = mesh(geo('Circle', 0.19, 16), glow, 0, 0.46, 0); brew.rotation.x = -Math.PI / 2; body.add(brew);
     return { root, parts: { body, core: brew }, h: 0.6, kind: 'cauldron' };
   }
+  function brazier(s){
+    const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+    const stone = mat(0x6a6460), iron = mat(0x2c2c32, { metal: 0.5, rough: 0.6 });
+    body.add(mesh(box(0.16, 0.36, 0.16), stone, 0, 0.18, 0));
+    const bowl = mesh(geo('Sphere', 0.17, 10, 6), iron, 0, 0.4, 0); bowl.scale.y = 0.45; body.add(bowl);
+    const flame = new THREE.Group(); flame.position.y = 0.5; body.add(flame);
+    flame.add(mesh(geo('Octahedron', 0.11, 0), mat(0x000000, { em: 0xff8a30, ei: 2 }), 0, 0.04, 0));
+    flame.add(mesh(geo('Octahedron', 0.06, 0), mat(0x000000, { em: 0xffe08a, ei: 2.4 }), 0, 0.1, 0));
+    return { root, parts: { body, flame }, h: 0.6, kind: 'brazier' };
+  }
+  function ore(s){
+    const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+    const rock = mat(0x4a4038), glow = mat(0x000000, { em: s.c2, ei: 1.8 });
+    body.add(mesh(geo('Icosahedron', 0.2, 0), rock, 0, 0.12, 0));
+    for (const [x, z, r, t] of [[0.05, 0.02, 0.09, 0.3], [-0.08, 0.04, 0.07, -0.4], [0.02, -0.08, 0.06, 0.2]]){ const c = mesh(geo('Octahedron', r, 0), glow, x, 0.26, z); c.scale.y = 1.8; c.rotation.z = t; body.add(c); }
+    return { root, parts: { body }, h: 0.5, kind: 'ore' };
+  }
   function build(type){
     const d = MOBS[type]; const s = d.model;
     switch (s.k){
@@ -3350,6 +3437,8 @@ const MDL = (() => {
       case 'fist': return fist(s);
       case 'yog': return yog(s);
       case 'cauldron': return cauldron(s);
+      case 'brazier': return brazier(s);
+      case 'ore': return ore(s);
       case 'hero': { const h = G.hero; const m = hero(h.cls, h.eq.armor && h.eq.armor.t, h.eq.weapon ? itemIconKey(h.eq.weapon) : null); m.root.traverse(o => { if (o.isMesh){ o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.emissive = new THREE.Color(0x4060a0); o.material.emissiveIntensity = 0.5; } }); return m; }
     }
     return humanoid({ c: 0xff00ff });
@@ -3981,6 +4070,7 @@ const Render = (() => {
       if (P.flies) for (const f of P.flies){ const u = f.userData; const t2 = a.ph*u.sp + u.ph; f.position.set(Math.cos(t2)*u.r, u.y + Math.sin(t2*1.7)*0.06, Math.sin(t2)*u.r); }
       if (P.frags) P.frags.forEach((f, i) => { const t2 = a.ph*2 + f.userData.ph; f.position.set(Math.cos(t2)*0.26, Math.sin(t2*1.3)*0.12, Math.sin(t2)*0.26); f.rotation.set(t2, t2*0.7, 0); });
       if (P.core) { const s = 1 + Math.sin(a.ph*6)*0.08; P.core.scale.setScalar(s); }
+      if (P.flame) P.flame.visible = !!ch.lit;
       if (P.tents) P.tents.forEach((t2, i) => t2.rotation.x = Math.sin(a.ph*2 + i)*0.3);
       if (P.blob){ const s = 1 + Math.sin(a.ph*3)*0.05 + (ch.pumping ? Math.sin(a.ph*20)*0.08 + 0.15 : 0); P.blob.scale.set(s, 0.8/s + (walking ? 0.1 : 0), s); }
       if (a.kind === 'eye' || a.kind === 'bat' || a.kind === 'elemental' || a.kind === 'fist') P.body.position.y = (a.kind === 'bat' ? 0.45 : (a.kind === 'eye' ? 0.55 : (a.kind === 'fist' ? 0.55 : 0.45))) + Math.sin(a.ph*2.2)*0.06;
@@ -4597,7 +4687,60 @@ const UI = (() => {
     if (MOBS[m.type].passive) interact(m); else act(() => heroAttack(m));
     return true;
   }
-  function interact(m){ if (m.type === 'keeper') openSell(); else if (m.type === 'cauldron') openAlchemy(); }
+  function interact(m){
+    if (m.type === 'keeper') openSell();
+    else if (m.type === 'cauldron') openAlchemy();
+    else if (m.type === 'brazier') act(() => lightBrazier(m));
+    else if (m.type === 'ore') act(() => mineOre(m));
+    else if (MOBS[m.type].npc) openQuest(m);
+  }
+  function talk(m, text, buttons, bind){
+    openWindow(`<h2>${esc(MOBS[m.type].name)}</h2><p>${text}</p><div class="row" style="flex-direction:column;align-items:stretch;gap:8px;margin-top:10px">${buttons.map(([k, label, primary]) => `<button class="btn ${primary ? 'primary' : ''}" data-q="${k}">${label}</button>`).join('')}</div>`, p => {
+      p.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => { if (b.dataset.q === 'bye') closeWindow(); else bind(b.dataset.q); }));
+    }, null, true);
+  }
+  function openQuest(m){
+    const h = G.hero, q = questOf(m.type), done = () => { closeWindow(); update(); saveGame(); };
+    const accept = () => { q.state = 'active'; log('Quest accepted: ' + MOBS[m.type].name + '.', 'mag'); done(); };
+    if (m.type === 'lamplighter'){
+      if (q.state === 'new') return talk(m, '"When the water came, the braziers on this floor went cold, and I went with them. Light all three for me? I kept a few things from better days."', [['yes', 'I will light them', true], ['bye', 'Not now']], accept);
+      if ((q.lit || 0) < 3) return talk(m, '"Three braziers, friend. ' + (q.lit || 0) + ' burn so far."', [['bye', 'On my way', true]]);
+      const tier = clamp(regionOf(G.depth) + 2, 2, 5);
+      return talk(m, '"Warm again. Thank you. Take one of these and go with my blessing."', [['weapon', 'A weapon (+1)', true], ['armor', 'An armor (+1)']], k => {
+        giveItem(k === 'weapon' ? mkWeapon(R.pick(WEAPON_TIERS[tier]), 1) : mkArmor(ARMOR_BY_TIER[tier], 1)); q.state = 'done'; npcLeaves(m); log('The lamplighter fades with a grateful smile.', 'mag'); done(); });
+    }
+    if (m.type === 'cartographer'){
+      if (q.state === 'new') return talk(m, '"Guards everywhere. Get me to the stairs down, alive, and every map I drew is yours."', [['yes', 'Stay close to me', true], ['bye', 'Not now']], () => {
+        m.escort = true; m.ally = true; m.state = 'hunting'; m.hp = m.ht = MOBS.cartographer.hp; accept(); });
+      return talk(m, '"Lead on. I am right behind you."', [['bye', 'Keep up', true]]);
+    }
+    if (m.type === 'foreman'){
+      if (q.state === 'new') return talk(m, '"My crew ran off and left three veins of glowing ore in the rock here. Dig them out for me and I will reforge your gear: the upgrades of one piece hammered into another of the same kind. Mind the noise."', [['yes', 'I will dig', true], ['bye', 'Not now']], accept);
+      if ((q.ore || 0) < 3) return talk(m, '"Three chunks, I said. You have brought ' + (q.ore || 0) + '."', [['bye', 'Back to it', true]]);
+      if (q.state === 'done') return talk(m, '"A fine job, that. Safe travels."', [['bye', 'Farewell', true]]);
+      return talk(m, '"Good ore. Pick a piece to strengthen, then the piece to melt down into it."', [['reforge', 'Reforge', true], ['bye', 'Later']], () => {
+        chooseItem('Strengthen which item?', i => ['weapon', 'armor'].includes(i.k), target => {
+          if (!target) return;
+          chooseItem('Melt down which ' + target.k + '?', i => i.k === target.k && i !== target, source => { if (source && reforge(target, source)){ q.state = 'done'; update(); saveGame(); } });
+        });
+      });
+    }
+    if (m.type === 'scholar'){
+      if (q.state === 'new') return talk(m, '"My own spell binds me. Each creature that dies on this floor loosens it. Slay six, and one of my wands is yours."', [['yes', 'I will hunt', true], ['bye', 'Not now']], accept);
+      if ((q.kills || 0) < 6) return talk(m, '"The chains still hold. ' + (q.kills || 0) + ' of six."', [['bye', 'Back to the hunt', true]]);
+      const picks = R.shuffle(Object.keys(WANDS).slice()).slice(0, 3);
+      return talk(m, '"Free at last. Choose one."', picks.map((k, i) => [k, 'Wand of ' + WANDS[k].name + ' (+2)', i === 0]), k => {
+        giveItem(mkWand(k, 2)); q.state = 'done'; npcLeaves(m); log('The scholar vanishes in a swirl of light.', 'mag'); done(); });
+    }
+    if (m.type === 'bargainer'){
+      if (q.state === 'done') return talk(m, '"We have done our business, you and I."', [['bye', 'Leave', true]]);
+      return talk(m, '"One deal, traveler. Choose well."', [['blood', 'Your blood for strength: lose a fifth of your health forever, gain 2 strength', true], ['gold', 'Your gold for craft: pay 300 gold to upgrade an item' + (h.gold < 300 ? ' (you lack the gold)' : '')], ['bye', 'No deal']], k => {
+        if (k === 'blood'){ bargainBlood(); done(); return; }
+        if (h.gold < 300){ log('You do not have 300 gold.', 'warn'); return; }
+        chooseItem('Upgrade which item?', canUpgrade, sel => { if (bargainGold(sel)) { update(); saveGame(); } });
+      });
+    }
+  }
   function openAlchemy(){
     const h = G.hero, pick = [];
     openWindow(`<h2>Alchemy cauldron</h2><p>Drop in three items and see what comes of it.</p>
