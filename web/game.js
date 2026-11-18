@@ -168,7 +168,9 @@ const MOBS = {
   image:   { name:'Mirror Image', hp:1, def:10, att:10, dmg:[1,4], dr:[0,0], exp:0, max:0, ally:true,
              model:{k:'hero'}, desc:'A magical copy of you. It fades on the first hit.' },
   keeper:  { name:'Shopkeeper', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true,
-             model:{k:'humanoid', c:0x7a5a2a, c2:0xd8c070, head:0xd8b08c, beard:0x9a7a5a, hat:0x5a3a1a, scale:0.95}, desc:'A merchant who somehow does business this deep. Walk onto an item to buy it, or tap the shopkeeper to sell.' }
+             model:{k:'humanoid', c:0x7a5a2a, c2:0xd8c070, head:0xd8b08c, beard:0x9a7a5a, hat:0x5a3a1a, scale:0.95}, desc:'A merchant who somehow does business this deep. Walk onto an item to buy it, or tap the shopkeeper to sell.' },
+  cauldron:{ name:'Alchemy Cauldron', hp:9999, def:999, att:0, dmg:[0,0], dr:[0,0], exp:0, max:0, passive:true,
+             model:{k:'cauldron', c2:0x7cf06a}, desc:'A bubbling iron cauldron left by some earlier delver. Walk into it to brew three items into something new.' },
 };
 
 const MOB_ROTATION = {
@@ -317,6 +319,33 @@ const CHALLENGES = {
   noupgrade: { n:'No Upgrades', d:'Scrolls of Upgrade become Scrolls of Recharging.' },
   dark:      { n:'Darkness',    d:'You can see only 4 tiles around you.' },
 };
+const SUBCLASSES = {
+  juggernaut:  { cls:'warrior',  n:'Juggernaut',  d:'Every hit you take builds momentum, up to 3. Your next melee strike spends it: +25% damage per stack, and the target is knocked back.' },
+  duelist:     { cls:'warrior',  n:'Duelist',     d:'While exactly one enemy stands next to you, every third melee hit is a critical that deals double damage.' },
+  runesmith:   { cls:'mage',     n:'Runesmith',   d:'Staff bolts leave a rune of fire or frost on the ground. Monsters walk right into them.' },
+  conduit:     { cls:'mage',     n:'Conduit',     d:'Bolts arc to a second enemy nearby for half damage. With no charges left you can still zap by paying 3 health.' },
+  shade:       { cls:'rogue',    n:'Shade',       d:'Your first strike from invisibility slays any foe that is not a boss. It recharges over 40 turns.' },
+  scavenger:   { cls:'rogue',    n:'Scavenger',   d:'Monsters drop loot half again as often, you find hidden things more easily, and thieves cannot rob you.' },
+  tracker:     { cls:'huntress', n:'Tracker',     d:'Arrows mark their target for 10 turns. Marked enemies show through walls and take 25% more damage from everything.' },
+  thornweaver: { cls:'huntress', n:'Thornweaver', d:'Arrows sprout brambles where they land, rooting anything that walks in. Whatever the arrow hits is rooted too.' },
+};
+const sub = k => !!(G && G.hero && G.hero.sub === k);
+const RECIPES = {
+  brew:   { n:'Three potions',           d:'one random potion, identified',  test: c => c.potion === 3 },
+  scribe: { n:'Three scrolls',           d:'one random scroll, identified',  test: c => c.scroll === 3 },
+  remedy: { n:'Two potions and a food',  d:'a Potion of Healing',            test: c => c.potion === 2 && c.food === 1 },
+};
+function recipeFor(items){ if (items.length !== 3) return null; const c = { potion: 0, scroll: 0, food: 0 }; for (const it of items) c[it.k] = (c[it.k] || 0) + 1; return Object.keys(RECIPES).find(k => RECIPES[k].test(c)) || null; }
+function brew(items){ // items: three pack items; a stack may appear as often as its quantity
+  const key = recipeFor(items); if (!key) return null;
+  for (const it of items) takeOne(it);
+  const out = key === 'remedy' ? mkPotion('healing') : key === 'brew' ? mkPotion(R.pick(Object.keys(POTIONS).filter(k => k !== 'strength'))) : mkScroll(R.pick(Object.keys(SCROLLS).filter(k => k !== 'upgrade')));
+  learnType(out); (G.recipes || (G.recipes = {}))[key] = true;
+  if (!collect(out)) addHeap(L, cellOf(G.hero), out);
+  log('The cauldron bubbles over. You brewed ' + aOrAn(baseName(out).toLowerCase()) + '!', 'good'); FX.burst(G.hero.x, G.hero.y, 0x7cf06a, 16); Sound.play('drink');
+  V.itemsDirty = true;
+  return out;
+}
 const chal = k => !!(G && G.ch && G.ch[k]);
 const chalCount = () => G && G.ch ? Object.keys(G.ch).filter(k => G.ch[k]).length : 0;
 const BUFF_INFO = {
@@ -491,6 +520,7 @@ function genRegular(depth){
     for (let i = 0; i < n; i++){ const c = freeCellInRoom(L, secret); if (c >= 0) addHeap(L, c, R.chance(0.4) ? mkGold(depth) : randomItem(depth)); }
   }
   if (L.shop){ const sr = rooms.find(r => r.type === 'shop'); fillShop(L, sr, depth); }
+  if (depth % 5 === 3){ const rm = R.pick(rooms.filter(r => r.type === 'normal')); const c = rm ? freeCellInRoom(L, rm) : -1; if (c >= 0){ const cm = mkMob('cauldron', c % W, (c / W) | 0); cm.state = 'passive'; L.mobs.push(cm); L.cauldron = true; } }
   // mobs
   const nMobs = Math.round((3 + (depth % 5) + R.int(3)) * (chal('swarm') ? 1.5 : 1));
   L.mobLimit = nMobs;
@@ -1175,6 +1205,13 @@ function doAttack(att, def, opts){
   }
   let dmg = opts.dmg !== undefined ? opts.dmg : (isHero(att) ? heroDamage(surprise) : mobDamage(att));
   if (opts.dmgMul) dmg = Math.round(dmg * opts.dmgMul);
+  let knock = false;
+  if (isHero(att) && !opts.ranged){
+    if (att.sub === 'juggernaut' && att.mom){ dmg = Math.round(dmg * (1 + 0.25 * att.mom)); att.mom = 0; knock = true; }
+    if (att.sub === 'duelist' && L.mobs.filter(m => !m.dead && !m.ally && !MOBS[m.type].passive && cheb(m.x, m.y, att.x, att.y) === 1).length === 1){
+      att.duel = (att.duel || 0) + 1; if (att.duel % 3 === 0){ dmg *= 2; FX.text(def.x, def.y, 'CRIT', '#ffd040', opts.delay || 0); log('Critical hit!', 'good'); } }
+    if (att.sub === 'shade' && att.buffs.invis && !att.cd.shade && !MOBS[def.type].boss && !MOBS[def.type].passive){ dmg = def.hp + 999; att.cd.shade = 40; log('You strike from the shadows!', 'good'); }
+  }
   if (surprise && !opts.dmgFixed){ FX.text(def.x, def.y, '!', '#f2b24c', opts.delay || 0); if (opts.sneakBonus) dmg = Math.round(dmg * 1.5); }
   dmg = Math.max(0, dmg - drOf(def));
   dmg = attackProc(att, def, dmg);
@@ -1182,6 +1219,10 @@ function doAttack(att, def, opts){
   if (isHero(att) && att.eq.weapon && !opts.ranged) weaponUsed(att.eq.weapon);
   if (isHero(att) && (att.buffs.invis || (att.eq.art && att.eq.art.active))){ breakInvis(); }
   damage(def, dmg, att, opts);
+  if (knock && !def.dead && !MOBS[def.type].boss && !MOBS[def.type].immobile && !MOBS[def.type].passive){
+    const nx = def.x + Math.sign(def.x - att.x), ny = def.y + Math.sign(def.y - att.y);
+    if (inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w + nx]] && !charAt(nx, ny) && diagOK(L, def.x, def.y, nx, ny)){ def.x = nx; def.y = ny; FX.move(def); onEnter(def, cellOf(def), false); }
+  }
   return true;
 }
 function breakInvis(){
@@ -1215,7 +1256,7 @@ function attackProc(att, def, dmg){
     if (d.drain){ const heal = Math.min(att.ht - att.hp, Math.max(0, Math.round(dmg*0.5))); if (heal > 0){ att.hp += heal; FX.text(att.x, att.y, '+' + heal, '#7fe07f', 0.15); } }
     if (d.charm && isHero(def) && R.chance(0.3)){ def.buffs.charm = { t: 5, src: att.id }; log('You are charmed by ' + theName(att) + '!', 'bad'); }
     if (att.type === 'fistr' && R.chance(0.4)) addGas('toxic', cellOf(def), 120);
-    if (d.steal && isHero(def) && !att.stolen) thiefSteal(att);
+    if (d.steal && isHero(def) && !att.stolen && def.sub !== 'scavenger') thiefSteal(att);
   }
   return dmg;
 }
@@ -1228,7 +1269,7 @@ function defenseProc(def, att, dmg){
   return dmg;
 }
 function invulnerable(ch){
-  if (ch.type === 'keeper') return true;
+  if (MOBS[ch.type] && MOBS[ch.type].passive) return true;
   if (ch.type === 'yog') return L.mobs.some(m => !m.dead && (m.type === 'fistb' || m.type === 'fistr'));
   return false;
 }
@@ -1237,9 +1278,11 @@ function damage(ch, dmg, src, opts){
   opts = opts || {};
   if (invulnerable(ch)){ FX.text(ch.x, ch.y, 'immune', '#c0c0c0', opts.delay || 0); return; }
   dmg = Math.max(0, Math.round(dmg));
+  if (!isHero(ch) && ch.buffs.marked) dmg = Math.round(dmg * 1.25);
   if (isHero(ch)){
     const ten = ringLevel('tenacity');
     if (ten) dmg = Math.round(dmg * Math.pow(0.85, ten * (1 - ch.hp/ch.ht)));
+    if (ch.sub === 'juggernaut' && dmg > 0) ch.mom = Math.min(3, (ch.mom || 0) + 1);
     if (ch.shield > 0 && dmg > 0){ const s = Math.min(ch.shield, dmg); ch.shield -= s; dmg -= s; if (s) FX.text(ch.x, ch.y, '-' + s, '#c8d4e8', opts.delay || 0); }
     ch.lastHurt = G.hero.time;
   } else {
@@ -1287,7 +1330,7 @@ function die(ch, src){
     if (!ch.noexp && G.hero.lvl <= d.max) earnExp(d.exp);
     const c = cellOf(ch);
     if (ch.stolen){ addHeap(L, c, ch.stolen); ch.stolen = null; }
-    const wealth = Math.pow(1.2, ringLevel('wealth'));
+    const wealth = Math.pow(1.2, ringLevel('wealth')) * (sub('scavenger') ? 1.5 : 1);
     if (d.loot && R.chance(d.loot * wealth)) addHeap(L, c, lootItem(d.lootK, G.depth));
     if (d.explode){ FX.burst(ch.x, ch.y, 0xe8e0d0, 18); for (const o of charsNear(ch.x, ch.y, 1)) damage(o, Math.max(0, R.normal(6, 12) - drOf(o)), ch); }
     if (d.boss) onBossDeath(ch);
@@ -1317,7 +1360,7 @@ function addBuff(ch, key, t, extra){
     const d = MOBS[ch.type];
     if (key === 'burning' && (ch.type === 'elemental' || ch.type === 'fistb')) return;
     if (d.boss && (key === 'para' || key === 'frozen' || key === 'sleep')) { t = Math.min(t, 2); }
-    if (ch.type === 'yog' || ch.type === 'keeper') return;
+    if (ch.type === 'yog' || d.passive) return;
   }
   if (isHero(ch) && ch.buffs.purity && key === 'para') return;
   if (key === 'burning' && L.tiles[cellOf(ch)] === T.WATER) return;
@@ -1662,12 +1705,14 @@ function changeLevel(dir, toDepth){
     Render.buildLevel(L);
     Render.sync(true);
     UI.update();
+    if (!h.sub && G.levels[10] && G.levels[10].bossDefeated) setTimeout(() => { if (!G.over) UI.choosePath(); }, 500);
     if (dir === 'down' && !L.entered){
       const reg = REGIONS[L.region];
       if (G.depth % 5 === 1) UI.toast(reg.name, 'Floor ' + G.depth);
       if (BOSS_DEPTHS[G.depth]) log('You sense a powerful presence on this floor. The stairs onward are sealed.', 'warn');
       else if (G.depth === 26) log('A strange stillness hangs in the air. You have reached the bottom.', 'mag');
       else if (L.shop) log('You hear the clinking of coins. A shop is on this floor.', 'good');
+      if (L.cauldron) log('Something is bubbling nearby. An alchemy cauldron is on this floor.', 'good');
     }
     log((dir === 'up' ? 'You ascend to floor ' : 'You descend to floor ') + G.depth + '.', 'info');
     L.entered = true;
@@ -1726,7 +1771,7 @@ function heroMove(dx, dy){
   if (!inb(L, nx, ny)) return false;
   const c = ny*L.w + nx, tile = L.tiles[c];
   const m = mobAt(L, nx, ny);
-  if (m && m.type === 'keeper'){ UI.openSell(); return false; }
+  if (m && MOBS[m.type].passive){ UI.interact(m); return false; }
   if (m && !m.ally){
     if (!diagOK(L, h.x, h.y, nx, ny)) return false;
     return heroAttack(m);
@@ -1756,18 +1801,18 @@ function onEnter(ch, c, voluntary){
     pickupAt(c);
     if (!flying && L.traps[c] && L.traps[c].active) triggerTrap(c, ch);
     if (!ch.dead){
-      if (R.chance(ch.cls === 'rogue' ? 0.35 : 0.15)) searchAround(1, 1);
+      if (R.chance(ch.sub === 'scavenger' ? 0.6 : (ch.cls === 'rogue' ? 0.35 : 0.15))) searchAround(1, 1);
       if (voluntary && tile === T.EXIT) V.pendingStairs = 'down';
       else if (voluntary && tile === T.ENTRANCE){ if (G.depth > 1) V.pendingStairs = 'up'; else log('Daylight beckons from above, but you cannot leave without the Amulet of Yendor.', 'info'); }
     }
   } else {
     const tr = L.traps[c];
-    if (!flying && tr && tr.active && tr.hidden) triggerTrap(c, ch);
+    if (!flying && tr && tr.active && (tr.hidden || tr.rune)) triggerTrap(c, ch);
   }
 }
 function heroAttack(m){
   const h = G.hero;
-  if (m.type === 'keeper') return false;
+  if (MOBS[m.type].passive) return false;
   doAttack(h, m);
   Sound.play('swing');
   return attackDelay(h);
@@ -1964,10 +2009,14 @@ function shootBow(it, tx, ty){
   FX.projectile(h.x, h.y, ex, ey, { k:'arrow' }, t);
   breakInvisLater();
   Sound.play('bow');
+  if (h.sub === 'thornweaver'){
+    for (const [dx, dy] of [[0,0], ...DIRS4]){ const nx = ex+dx, ny = ey+dy; if (inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w + nx]] && !(nx === h.x && ny === h.y)) L.web[ny*L.w + nx] = 1; }
+    V.blobDirty = true; if (b.ch && !b.ch.ally) addBuff(b.ch, 'rooted', 3);
+  }
   if (b.ch && !b.ch.ally){
     let dmg = R.normal(bowMin(it), bowMax(it)); if (h.buffs.weak) dmg = Math.floor(dmg*0.67);
     const surpr = isSurprised(b.ch); if (surpr) dmg = Math.round(dmg * 1.25);
-    doAttack(h, b.ch, { ranged: true, dmg, accMul: 1.25, delay: t });
+    if (doAttack(h, b.ch, { ranged: true, dmg, accMul: 1.25, delay: t }) && h.sub === 'tracker' && !b.ch.dead) addBuff(b.ch, 'marked', 10);
   }
   return 1;
 }
@@ -1976,8 +2025,10 @@ function zapWand(it, tx, ty){
   const isStaff = it.k === 'weapon';
   const wt = isStaff ? 'missile' : it.t;
   const wl = Math.max(0, it.lvl);
-  if (it.ch < 1){ log('Your ' + baseName(it) + ' fizzles; it has no charges left.', 'warn'); return 1; }
-  it.ch--;
+  if (it.ch < 1){
+    if (h.sub !== 'conduit' || h.hp <= 3){ log('Your ' + baseName(it) + ' fizzles; it has no charges left.', 'warn'); return 1; }
+    h.hp -= 3; FX.text(h.x, h.y, '-3', '#ff6a5a'); log('You pour your own life into the zap.', 'warn');
+  } else it.ch--;
   if (!isStaff && !it.known && !chal('blind')){ it.zaps = (it.zaps||0) + 1; if (it.zaps >= 3){ identify(it); log('You are now familiar with your ' + baseName(it) + '. It is ' + itemName(it) + '.', 'good'); } }
   breakInvisLater();
   const [lo, hi] = wandDmg({ t: wt, lvl: wl });
@@ -2010,6 +2061,11 @@ function zapWand(it, tx, ty){
   const b = bolt(h.x, h.y, tx, ty);
   const [ex, ey] = b.end;
   const t = 0.035 * b.path.length + 0.05;
+  if (isStaff && h.sub === 'runesmith'){
+    const free = b.path.map(([x, y]) => y*L.w + x).filter(c => !charAt(cx_(c), cy_(c)) && TP.pass[L.tiles[c]] && L.tiles[c] !== T.EXIT && L.tiles[c] !== T.ENTRANCE && !L.traps[c]);
+    const rc = free[free.length - 1];
+    if (rc !== undefined){ L.traps[rc] = { t: R.chance(0.5) ? 'fire' : 'frost', hidden: false, active: true, rune: true }; V.trapDirty = true; }
+  }
   if (wt === 'lightning'){
     FX.lightningTo(h.x, h.y, ex, ey);
     const targets = [];
@@ -2027,7 +2083,7 @@ function zapWand(it, tx, ty){
   else if (wt === 'frost'){ damage(ch, R.normal(lo, hi), h, { delay: t }); if (!ch.dead){ if (ch.buffs.chill) addBuff(ch, 'frozen', 3); else addBuff(ch, 'chill', 4 + wl); } }
   else if (wt === 'blast'){
     damage(ch, R.normal(lo, hi), h, { delay: t });
-    if (!ch.dead && !MOBS[ch.type]?.immobile && !MOBS[ch.type]?.boss && ch.type !== 'keeper'){
+    if (!ch.dead && !MOBS[ch.type]?.immobile && !MOBS[ch.type]?.boss && !MOBS[ch.type]?.passive){
       const dx = Math.sign(ch.x - h.x), dy = Math.sign(ch.y - h.y);
       let dist = 2 + Math.floor(wl/2), moved = 0;
       while (dist-- > 0){
@@ -2038,6 +2094,10 @@ function zapWand(it, tx, ty){
       FX.move(ch);
       if (moved && !ch.dead) onEnter(ch, cellOf(ch), false);
     }
+  }
+  if (h.sub === 'conduit'){
+    const arc = L.mobs.find(o => o !== ch && !o.dead && !o.ally && !MOBS[o.type].passive && cheb(o.x, o.y, ch.x, ch.y) <= 2 && losClear(L, ch.x, ch.y, o.x, o.y));
+    if (arc){ FX.lightning(ch, arc); damage(arc, Math.max(1, Math.round(R.normal(lo, hi) / 2)), h, { delay: t }); }
   }
   return 1;
 }
@@ -2052,6 +2112,7 @@ function onBossDeath(m){
   addHeap(L, c, mkGold(G.depth * 2));
   addHeap(L, c, vaultItem(G.depth + 2));
   if (m.type === 'goo') addHeap(L, c, mkPotion('healing'));
+  if (G.depth === 10 && !G.hero.sub) setTimeout(() => { if (!G.over) UI.choosePath(); }, 1400);
   log(MOBS[m.type].name + ' has been defeated! The way onward is open.', 'good');
   UI.toast('Victory', MOBS[m.type].name + ' falls');
   FX.shake(0.4); Sound.play('boss');
@@ -2068,7 +2129,7 @@ function victory(){
 function mobPassable(c, flying){
   const t = L.tiles[c];
   if (!TP.pass[t]) return false;
-  if (!flying){ const tr = L.traps[c]; if (tr && tr.active && !tr.hidden) return false; }
+  if (!flying){ const tr = L.traps[c]; if (tr && tr.active && !tr.hidden && !tr.rune) return false; }
   return true;
 }
 function distMap(tx, ty, flying){
@@ -3224,6 +3285,16 @@ const MDL = (() => {
     const frags = []; for (let i = 0; i < 6; i++){ const f = mesh(box(0.025, 0.05, 0.012), glow, 0, 0, 0); f.userData.ph = i / 6 * Math.PI * 2; ring.add(f); frags.push(f); }
     return { root, parts: { body, mass, core, frags }, h: 2.1, kind: 'yog', light: s.c2 };
   }
+  function cauldron(s){
+    const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+    const iron = mat(0x2c2c32, { metal: 0.5, rough: 0.6 }), glow = mat(0x000000, { em: s.c2, ei: 1.7 }), ember = mat(0x000000, { em: 0xff7a30, ei: 1.8 });
+    for (let i = 0; i < 3; i++){ const a = i / 3 * Math.PI * 2; body.add(mesh(box(0.05, 0.16, 0.05), iron, Math.cos(a) * 0.17, 0.08, Math.sin(a) * 0.17)); }
+    for (const [x, z] of [[0.04, 0.02], [-0.05, -0.03], [0.0, -0.06]]) body.add(mesh(box(0.06, 0.03, 0.06), ember, x, 0.02, z));
+    const pot = mesh(geo('Sphere', 0.25, 12, 8), iron, 0, 0.33, 0); pot.scale.y = 0.72; body.add(pot);
+    const rim = mesh(geo('Torus', 0.2, 0.035, 6), iron, 0, 0.47, 0); rim.rotation.x = -Math.PI / 2; body.add(rim);
+    const brew = mesh(geo('Circle', 0.19, 16), glow, 0, 0.46, 0); brew.rotation.x = -Math.PI / 2; body.add(brew);
+    return { root, parts: { body, core: brew }, h: 0.6, kind: 'cauldron' };
+  }
   function build(type){
     const d = MOBS[type]; const s = d.model;
     switch (s.k){
@@ -3243,6 +3314,7 @@ const MDL = (() => {
       case 'scorpion': return scorpion(s);
       case 'fist': return fist(s);
       case 'yog': return yog(s);
+      case 'cauldron': return cauldron(s);
       case 'hero': { const h = G.hero; const m = hero(h.cls, h.eq.armor && h.eq.armor.t, h.eq.weapon ? itemIconKey(h.eq.weapon) : null); m.root.traverse(o => { if (o.isMesh){ o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.material.emissive = new THREE.Color(0x4060a0); o.material.emissiveIntensity = 0.5; } }); return m; }
     }
     return humanoid({ c: 0xff00ff });
@@ -3892,11 +3964,11 @@ const Render = (() => {
       a.root.rotation.y = a.face;
       // visibility
       const cell = ch.y*L.w + ch.x;
-      const vis = isHero(ch) || (V.fov && V.fov[cell]) || V.mind || a.dead;
+      const vis = isHero(ch) || (V.fov && V.fov[cell]) || V.mind || a.dead || !!(ch.buffs && ch.buffs.marked);
       a.root.visible = !!vis;
       // overlays
       if (!isHero(ch) && vis && !a.dead){
-        const showBar = (ch.hp < ch.ht && !MOBS[ch.type].boss && ch.type !== 'keeper') || ch.ally;
+        const showBar = (ch.hp < ch.ht && !MOBS[ch.type].boss && !MOBS[ch.type].passive) || ch.ally;
         if (showBar){ if (!a.bar) a.bar = getBar(); }
         else if (a.bar){ a.bar.el.hidden = true; a.bar.used = false; a.bar = null; }
         const tagTxt = ch.state === 'sleeping' || (ch.buffs && ch.buffs.sleep) ? 'z' : (ch.buffs && (ch.buffs.para || ch.buffs.frozen) ? '*' : (ch.state === 'fleeing' ? '!' : ''));
@@ -3979,7 +4051,7 @@ const Render = (() => {
       cursorMesh.visible = true; const x = hoverCell % L.w, y = (hoverCell / L.w)|0;
       cursorMesh.position.set(x, cellHeight(L, x, y) + 0.02, y);
       const m = mobAt(L, x, y);
-      cursorMesh.material.color.set(m && !m.ally && m.type !== 'keeper' && V.fov[hoverCell] ? 0xff6050 : (L.heaps[hoverCell] ? 0xf3d062 : 0xffffff));
+      cursorMesh.material.color.set(m && !m.ally && !MOBS[m.type].passive && V.fov[hoverCell] ? 0xff6050 : (L.heaps[hoverCell] ? 0xf3d062 : 0xffffff));
       cursorMesh.material.opacity = 0.45 + Math.sin(time*5)*0.15;
     } else cursorMesh.visible = false;
     renderer.render(scene, camera);
@@ -4229,6 +4301,14 @@ const UI = (() => {
       case 'shoot': closeWindow(); startTargeting('shoot', it, -1); break;
     }
   }
+  function choosePath(){
+    const h = G.hero; if (h.sub || !$('modal').hidden) return;
+    const opts = Object.keys(SUBCLASSES).filter(k => SUBCLASSES[k].cls === h.cls);
+    openWindow(`<h2>Choose your path</h2><p>The guardian's fall sharpens your skills. Pick one; it lasts for the rest of the run.</p>
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px">${opts.map(k => `<button class="btn" data-sub="${k}" style="text-align:left"><b>${SUBCLASSES[k].n}</b><br><span style="font-family:var(--f-body);font-size:13px">${esc(SUBCLASSES[k].d)}</span></button>`).join('')}</div>
+      <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => {
+        h.sub = b.dataset.sub; log('You walk the path of the ' + SUBCLASSES[h.sub].n + '.', 'mag'); FX.levelUp(h); Sound.play('level'); closeWindow(); saveGame(); })));
+  }
   function chooseItem(title, filter, cb){ chooseCB = cb; chooseFilter = filter; chooseTitle = title; openInventory(); }
   function openBuy(c){
     const heap = L.heaps[c]; if (!heap) return;
@@ -4289,7 +4369,7 @@ const UI = (() => {
     const h = G.hero; const w = h.eq.weapon, a = h.eq.armor;
     const kp = Object.keys(G.known.potion).filter(k => G.known.potion[k]).map(k => POTIONS[k].name);
     const ks = Object.keys(G.known.scroll).filter(k => G.known.scroll[k]).map(k => SCROLLS[k].name);
-    openWindow(`<h2>${CLASSES[h.cls].name}, level ${h.lvl}</h2>
+    openWindow(`<h2>${CLASSES[h.cls].name}${h.sub ? ' · ' + SUBCLASSES[h.sub].n : ''}, level ${h.lvl}</h2>
       <div class="stats">
       <span>Health</span><span>${h.hp}/${h.ht}</span>
       <span>Strength</span><span>${heroStr()}</span>
@@ -4371,7 +4451,7 @@ const UI = (() => {
   // ---------- targeting ----------
   function startTargeting(kind, it, slot){
     if (heroBusy()) return;
-    if ((kind === 'zap') && it.ch < 1){ log('It has no charges left.', 'warn'); return; }
+    if ((kind === 'zap') && it.ch < 1 && G.hero.sub !== 'conduit'){ log('It has no charges left.', 'warn'); return; }
     const foes = visibleFoes().filter(m => { const b = bolt(G.hero.x, G.hero.y, m.x, m.y); return b.ch === m; });
     targeting = { kind, it, slot, foes, idx: 0 };
     if (V.lastTarget){ const i = foes.findIndex(f => f.id === V.lastTarget); if (i >= 0) targeting.idx = i; }
@@ -4460,8 +4540,33 @@ const UI = (() => {
   function stopAuto(){ path = null; resting = false; }
   function tryAttack(m){
     const h = G.hero;
-    if (canReach(h, m)) { act(() => heroAttack(m)); return true; }
-    return false;
+    if (!canReach(h, m)) return false;
+    if (MOBS[m.type].passive) interact(m); else act(() => heroAttack(m));
+    return true;
+  }
+  function interact(m){ if (m.type === 'keeper') openSell(); else if (m.type === 'cauldron') openAlchemy(); }
+  function openAlchemy(){
+    const h = G.hero, pick = [];
+    openWindow(`<h2>Alchemy cauldron</h2><p>Drop in three items and see what comes of it.</p>
+      <h3>Known recipes</h3><div id="arec"></div>
+      <h3>Ingredients in your pack</h3><div class="grid" id="agrid"></div>
+      <p id="apick"></p>
+      <div class="row" style="justify-content:space-between;margin-top:10px"><button class="btn" id="aclear">Empty the pot</button><span class="row"><button class="btn" id="aclose">Close</button><button class="btn primary" id="abrew" disabled>Brew</button></span></div>`, p => {
+      const draw = () => {
+        const known = G.recipes || {}, left = Object.keys(RECIPES).filter(k => !known[k]).length;
+        p.querySelector('#arec').innerHTML = Object.keys(RECIPES).filter(k => known[k]).map(k => `<p>${RECIPES[k].n} make ${RECIPES[k].d}.</p>`).join('') + `<p style="color:var(--dim)">${left ? left + ' more to discover.' : 'You know every recipe.'}</p>`;
+        const ok = h.inv.filter(i => ['potion', 'scroll', 'food'].includes(i.k));
+        p.querySelector('#agrid').innerHTML = ok.map(it => slotHTML(it)).join('') || '<p>You carry nothing to brew with.</p>';
+        p.querySelectorAll('#agrid .slot[data-id]').forEach(b => b.addEventListener('click', () => { const it = findItem(Number(b.dataset.id)); if (it && pick.length < 3 && pick.filter(i => i === it).length < it.qty){ pick.push(it); draw(); } }));
+        const key = recipeFor(pick);
+        p.querySelector('#apick').textContent = pick.length ? 'In the pot: ' + pick.map(i => itemName(i)).join(', ') + '.' + (pick.length === 3 ? (key ? (known[key] ? ' This makes ' + RECIPES[key].d + '.' : ' Something might come of this.') : ' Nothing would come of that.') : '') : 'The pot is empty. Pick three items.';
+        p.querySelector('#abrew').disabled = !key;
+      };
+      p.querySelector('#aclear').addEventListener('click', () => { pick.length = 0; draw(); });
+      p.querySelector('#aclose').addEventListener('click', closeWindow);
+      p.querySelector('#abrew').addEventListener('click', () => { const items = pick.slice(); closeWindow(); act(() => brew(items) ? 1 : false); });
+      draw();
+    });
   }
   function stepPath(){
     if (!path || heroBusy()) return;
@@ -4516,7 +4621,7 @@ const UI = (() => {
     }
     const m = mobAt(L, x, y);
     if (m && (V.fov[c])){
-      if (m.type === 'keeper'){ if (cheb(x, y, h.x, h.y) <= 1) openSell(); else walkTo(x, y, m); return; }
+      if (MOBS[m.type].passive){ if (cheb(x, y, h.x, h.y) <= 1) interact(m); else walkTo(x, y, m); return; }
       if (!m.ally){ if (!tryAttack(m)) walkTo(x, y, m); return; }
     }
     if (cheb(x, y, h.x, h.y) === 1 && !(m && !m.ally) && (act(() => heroMove(x - h.x, y - h.y)) || x === h.x || y === h.y)) return; // a blocked diagonal step (e.g. into a doorway) falls through to pathing
@@ -4644,7 +4749,7 @@ const UI = (() => {
     drawIconTo($('b-inv').querySelector('canvas'), 'ui:bag');
   }
   function portrait(){ if (G) drawIconTo($('portraitc'), 'hero:' + G.hero.cls); }
-  return { update, logChanged, toast, fade, openWindow, closeWindow, openInventory, chooseItem, openBuy, openSell, openHelp, openMenu, endScreen, examine, tick, bind, cellClick, useQuick, portrait, stopAuto, get targeting(){ return targeting; }, walkTo };
+  return { update, logChanged, toast, fade, openWindow, closeWindow, openInventory, chooseItem, choosePath, interact, openBuy, openSell, openHelp, openMenu, endScreen, examine, tick, bind, cellClick, useQuick, portrait, stopAuto, get targeting(){ return targeting; }, walkTo };
 })();
 // ============================================================
 // SOUND (tiny procedural synth)

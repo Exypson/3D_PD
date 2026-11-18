@@ -85,7 +85,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     const near = (x, y, dist) => { const L = pd.L, out = []; for (let dy = -dist; dy <= dist; dy++) for (let dx = -dist; dx <= dist; dx++){ const nx = x+dx, ny = y+dy;
       if ((dx || dy) && Math.max(Math.abs(dx), Math.abs(dy)) === dist && inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w+nx]] && !charAt(nx, ny) && !L.traps[ny*L.w+nx] && L.tiles[ny*L.w+nx] !== T.EXIT && L.tiles[ny*L.w+nx] !== T.ENTRANCE
         && (dist > 1 || diagOK(L, x, y, nx, ny)) && (dist === 1 || losClear(L, x, y, nx, ny))) out.push([nx, ny]); } return out; };
-    const clearMobs = () => { pd.L.mobs = pd.L.mobs.filter(m => m.type === 'keeper'); pd.Render.sync(); };
+    const clearMobs = () => { pd.L.mobs = pd.L.mobs.filter(m => MOBS[m.type].passive); pd.Render.sync(); };
     const spawn = (type, dist = 1) => { const h = pd.G.hero; const c = near(h.x, h.y, dist)[0] || near(h.x, h.y, 1)[0];
       const m = mkMob(type, c[0], c[1]); m.state = 'hunting'; m.target = { x: h.x, y: h.y }; m.time = h.time + 0.5; pd.L.mobs.push(m); pd.Render.sync(); return m; };
     const gone = m => m.dead || !pd.L.mobs.includes(m);
@@ -209,6 +209,81 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       }
     });
 
+    // subclasses: chosen after the floor-10 boss, then one concrete effect each
+    await section('subclasses', async () => {
+      const openSpot = n => { const L = pd.L, h = pd.G.hero, ok = (x, y) => inb(L, x, y) && TP.pass[L.tiles[y*L.w + x]] && !charAt(x, y) && !L.traps[y*L.w + x] && ![T.EXIT, T.ENTRANCE, T.DOOR].includes(L.tiles[y*L.w + x]);
+        for (let c = 0; c < L.w*L.h; c++){ const x = c % L.w, y = (c / L.w) | 0; if (!ok(x, y)) continue;
+          for (const [dx, dy] of DIRS4){ const cells = []; for (let k = 1; k <= n && ok(x + dx*k, y + dy*k); k++) cells.push([x + dx*k, y + dy*k]);
+            if (cells.length === n){ h.x = x; h.y = y; pd.Render.sync(true); updateFOV(); return cells; } } } return null; };
+      const put = (type, [x, y]) => { const m = mkMob(type, x, y); m.state = 'hunting'; m.buffs.para = { t: 999 }; m.hp = m.ht = 500; m.time = pd.G.hero.time + 0.5; pd.L.mobs.push(m); pd.Render.sync(); return m; };
+      await fresh('warrior'); await goTo(10);
+      const boss = pd.L.mobs.find(m => MOBS[m.type].boss); kill(boss); await wait(1800);
+      const opts = [...document.querySelectorAll('#modal [data-sub]')].map(b => b.dataset.sub);
+      check('subclass: the floor-10 boss offers the class\'s two paths', opts.join() === 'juggernaut,duelist', opts);
+      document.querySelector('#modal [data-sub="juggernaut"]')?.click();
+      const h = pd.G.hero; check('subclass: picking a path sets it', h.sub === 'juggernaut', h.sub);
+      clearMobs(); god(); damage(h, 3, 'test'); damage(h, 3, 'test');
+      check('juggernaut: hits taken build momentum', h.mom === 2, h.mom);
+      let cells = openSpot(2), m = put('gnoll', cells[0]);
+      await doAct(() => heroMove(m.x - h.x, m.y - h.y));
+      check('juggernaut: the next strike spends momentum and knocks back', h.mom === 0 && m.x === cells[1][0] && m.y === cells[1][1], [h.mom, m.x, m.y, cells[1]]);
+      clearMobs(); h.sub = 'duelist'; h.duel = 0; cells = openSpot(1); m = put('golem', cells[0]);
+      for (let i = 0; i < 3; i++) await doAct(() => heroMove(m.x - h.x, m.y - h.y));
+      check('duelist: every third hit on a lone enemy is critical', pd.V.log.slice(-8).some(l => l.msg === 'Critical hit!'), pd.V.log.slice(-4).map(l => l.msg));
+      await fresh('mage'); let hm = pd.G.hero, staff = hm.eq.weapon; hm.sub = 'runesmith';
+      cells = openSpot(3); m = put('gnoll', cells[2]);
+      await doAct(() => zapWand(staff, m.x, m.y));
+      const rc = Number(Object.keys(pd.L.traps).find(k => pd.L.traps[k].rune));
+      check('runesmith: a staff bolt leaves a rune', !Number.isNaN(rc) && rc === cells[1][1]*pd.L.w + cells[1][0], [rc, cells]);
+      check('runesmith: monsters do not avoid runes', mobPassable(rc, false));
+      onEnter(m, rc, false); check('runesmith: a monster stepping on a rune sets it off', !pd.L.traps[rc].active);
+      clearMobs(); clearBlobs(); hm.sub = 'conduit'; staff.ch = 0; cells = openSpot(3); m = put('gnoll', cells[1]); const m2 = put('gnoll', cells[2]);
+      await ready(); hm.ht = hm.hp = 500; hm.regen = 0; pd.act(() => zapWand(staff, m.x, m.y)); await ready();
+      check('conduit: zapping an empty staff costs 3 health', hm.hp === 497, hm.hp);
+      check('conduit: the bolt arcs to a second enemy', m2.hp < m2.ht, m2.hp);
+      await fresh('rogue'); const hr = pd.G.hero; hr.sub = 'shade'; cells = openSpot(1); m = put('golem', cells[0]);
+      await doAct(() => toggleCloak(hr.eq.art)); await doAct(() => heroMove(m.x - hr.x, m.y - hr.y));
+      check('shade: a strike from invisibility slays a non-boss', gone(m) && hr.cd.shade > 0, [m.hp, hr.cd.shade]);
+      clearMobs(); hr.sub = 'scavenger'; cells = openSpot(1); m = mkMob('thief', cells[0][0], cells[0][1]); m.state = 'hunting'; m.time = hr.time + 0.5; pd.L.mobs.push(m); pd.Render.sync();
+      let hurtHero = 0; for (let i = 0; i < 20 && !hurtHero; i++){ await ready(); god(); const hp0 = hr.hp; pd.act(heroWait); await ready(); hurtHero += Math.max(0, hp0 - hr.hp); }
+      check('scavenger: thieves cannot rob you', hurtHero > 0 && !m.stolen, [hurtHero, !!m.stolen]);
+      await fresh('huntress'); const hh = pd.G.hero, bow = hh.inv.find(i => i.k === 'bow'); hh.sub = 'tracker';
+      cells = openSpot(2); m = put('gnoll', cells[1]);
+      for (let i = 0; i < 6 && !m.buffs.marked; i++) await doAct(() => shootBow(bow, m.x, m.y));
+      const hp1 = m.hp; damage(m, 8, hh);
+      check('tracker: arrows mark, and marked enemies take 25% more damage', !!m.buffs.marked && hp1 - m.hp === 10, [!!m.buffs.marked, hp1 - m.hp]);
+      clearMobs(); pd.L.web.fill(0); hh.sub = 'thornweaver'; cells = openSpot(2); m = put('gnoll', cells[1]);
+      await doAct(() => shootBow(bow, m.x, m.y));
+      check('thornweaver: arrows sprout brambles and root the target', pd.L.web.some(v => v) && !!m.buffs.rooted, [pd.L.web.some(v => v), !!m.buffs.rooted]);
+    });
+
+    // alchemy: a cauldron on the third floor of each region; three items brew one
+    await section('alchemy', async () => {
+      await fresh('warrior'); await goTo(3);
+      const L = pd.L, h = pd.G.hero, pot = L.mobs.find(m => m.type === 'cauldron');
+      check('alchemy: a cauldron stands on floor 3', !!pot);
+      check('alchemy: the cauldron cannot be hurt', !!pot && invulnerable(pot));
+      h.inv.length = 0;
+      const ps = ['toxic', 'frost', 'haste'].map(t => mkPotion(t)); h.inv.push(...ps);
+      let made = brew(ps);
+      check('alchemy: three potions brew an identified potion', !!made && made.k === 'potion' && made.t !== 'strength' && isTypeKnown(made) && ps.every(x => !findItem(x.id)), made && made.t);
+      const st = mkScroll('teleport'); st.qty = 2; const sc = mkScroll('mapping'); h.inv.push(st, sc);
+      made = brew([st, st, sc]);
+      check('alchemy: three scrolls (one stack used twice) make an identified scroll', !!made && made.k === 'scroll' && made.t !== 'upgrade' && !findItem(st.id) && !findItem(sc.id), made && made.t);
+      const rem = [mkPotion('toxic'), mkPotion('frost'), mkFood('small')]; h.inv.push(...rem);
+      made = brew(rem);
+      check('alchemy: two potions and a food make healing', !!made && made.t === 'healing');
+      const bad = [mkFood('ration'), mkFood('small'), mkFood('pasty')]; h.inv.push(...bad);
+      check('alchemy: a mix with no recipe does nothing and keeps the items', brew(bad) === null && bad.every(x => findItem(x.id)));
+      check('alchemy: discovered recipes are remembered', ['brew', 'scribe', 'remedy'].every(k => pd.G.recipes && pd.G.recipes[k]));
+      h.inv.length = 0; const ui = ['toxic', 'frost', 'haste'].map(t => mkPotion(t)); h.inv.push(...ui);
+      const adj = near(pot.x, pot.y, 1)[0]; h.x = adj[0]; h.y = adj[1]; pd.Render.sync(true); updateFOV();
+      await ready(); pd.act(() => heroMove(pot.x - h.x, pot.y - h.y)); await wait(150);
+      for (const x of ui) document.querySelector('#agrid .slot[data-id="' + x.id + '"]')?.click();
+      document.getElementById('abrew')?.click(); await ready();
+      check('alchemy: walking into the cauldron, picking three items and brewing works', h.inv.length === 1 && h.inv[0].k === 'potion' && ui.every(x => !findItem(x.id)), h.inv.map(i => i.t));
+    });
+
     // challenges
     await section('challenges', async () => {
       pd.newGame('warrior', { dark: true, glass: true, starving: true, blind: true }); await wait(400); await ready();
@@ -294,7 +369,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       if (pd.V.busy || pd.V.needProcess) continue;
       h.ht = h.hp = 9999; h.hunger = 0; // bot tests progression, not balance (it ignores telegraphed attacks)
       if (WALK){ for (const m of L.mobs) if (MOBS[m.type].boss && !L.bossDefeated) onBossDeath(m); // unseal the stairs as a kill would
-        L.mobs = L.mobs.filter(m => m.ally || m.type === 'keeper'); }
+        L.mobs = L.mobs.filter(m => m.ally || MOBS[m.type].passive); }
       if (G.depth !== lastDepth){ lastDepth = G.depth; seen.add(G.depth); bad = new Set(); console.log('[bot] floor ' + G.depth + ' at step ' + steps); }
       const k = L.visited.reduce((a, v) => a + v, 0); if (k > known){ known = k; bad.clear(); dry = false; } // new ground: retry blacklisted targets
       const vis = m => pd.V.fov[m.y*L.w + m.x];
