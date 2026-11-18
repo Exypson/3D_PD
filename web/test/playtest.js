@@ -249,7 +249,7 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     const pd = window.__pd, wait = ms => new Promise(r => setTimeout(r, ms));
     if (FROM > 1){ pd.changeLevel('down', FROM); while (pd.G.depth !== FROM || pd.V.busy) await wait(50); }
     const PASS = new Set([2, 3, 6, 7, 8, 9, 10, 11, 12, 16]);
-    let trapLog = -1, steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
+    let trapMsg = null, steps = 0, lastDepth = 0, stuck = 0, lastPos = '', hops = 0, bad = new Set(), known = 0, dry = false;
     const seen = new Set();
     // nearest explored, walkable cell that borders unexplored space (closest to the goal), skipping cells that failed
     const frontier = (L, tx, ty) => {
@@ -298,15 +298,16 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
           for (let y = 0; y < L.h; y++){ let r = ''; for (let x = 0; x < L.w; x++){ const c = y*L.w + x, t = L.tiles[c];
             r += (x === h.x && y === h.y) ? '@' : !L.visited[c] ? ' ' : bad.has(c) ? 'x' : (L.traps[c] && !L.traps[c].hidden) ? '^' : '?#.+L5<>~"\',_PsWS:BT'[t]; } map += r.replace(/\s+$/, '') + '\n'; }
           console.log('[bot] nothing reachable to explore on floor ' + G.depth + ', searching\n' + map.replace(/^\n+|\n+$/g, '')); } } // search for secret doors
-      if (pd.V.log.length !== trapLog && (pd.V.log.at(-1) || {}).msg?.startsWith('A trap blocks')){ trapLog = pd.V.log.length; // as a player would: step onto the blocking trap on purpose
-        const t = [[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]].map(([dx,dy]) => [h.x+dx, h.y+dy]).find(([x,y]) => { const tr = L.traps[y*L.w + x]; return tr && tr.active && !tr.hidden; });
+      const lastMsg = pd.V.log.at(-1); // the log keeps 60 entries, so compare the entry itself, not the log length
+      if (lastMsg !== trapMsg && lastMsg?.msg?.startsWith('A trap blocks')){ trapMsg = lastMsg; // as a player would: step onto the blocking trap on purpose
+        const t = DIRS8.map(([dx,dy]) => [h.x+dx, h.y+dy]).find(([x,y]) => { const tr = L.traps[y*L.w + x]; return tr && tr.active && !tr.hidden && diagOK(L, h.x, h.y, x, y); });
         if (t) pd.UI.cellClick(t[0], t[1]);
       }
       const pos = G.depth + ':' + h.time; // no game time passed = the click did nothing
       stuck = pos === lastPos ? stuck + 1 : 0; lastPos = pos;
       if (stuck && click) bad.add(click[1]*L.w + click[0]); // seen but not reachable through explored tiles yet
       if (stuck > 80){ // last resort, counted in the result: hop next to the exit
-        hops++; h.x = ex; h.y = ey + (PASS.has(L.tiles[(ey+1)*L.w + ex]) ? 1 : -1); stuck = 0;
+        hops++; const spot = DIRS8.map(([dx,dy]) => [ex+dx, ey+dy]).find(([x,y]) => PASS.has(L.tiles[y*L.w + x]) && !charAt(x, y)); if (spot){ h.x = spot[0]; h.y = spot[1]; } stuck = 0;
         console.log('[bot] hop on floor ' + G.depth + ' clicking ' + JSON.stringify(click) + ' tile ' + (click ? L.tiles[click[1]*L.w + click[0]] : '-') + ' keys ' + JSON.stringify(h.keys) + ' log ' + JSON.stringify(pd.V.log.slice(-2).map(l => l.msg)));
       }
     }
