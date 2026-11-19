@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pixel Dungeon 3D</title>
+<meta name="description" content="A 3D roguelike dungeon crawler for the browser. A GPLv3 fork of Shattered Pixel Dungeon.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Pixelify+Sans:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="view" tabindex="0" aria-label="Dungeon view"></canvas>
+  <div id="overlay"></div>
+  <div id="hud" hidden>
+    <div id="status" class="slab">
+      <div id="portrait" title="Hero info (C)"><canvas id="portraitc" width="16" height="16"></canvas><div id="lvlbadge">1</div></div>
+      <div class="bars">
+        <div class="bar" id="hpbar"><u></u><i></i><b></b><span>20/20</span></div>
+        <div class="xpbar" id="xpbar"><i></i></div>
+        <div id="buffs"></div>
+      </div>
+    </div>
+    <div id="bossbar" hidden><div class="bn"></div><div class="bar"><i></i><span></span></div></div>
+    <div id="depthbox" class="slab">
+      <div class="dz"><span class="dn" id="depthn">1</span><span class="rn" id="regionn">Sewers</span></div>
+      <div class="gk" id="goldk"></div>
+      <button class="ibtn" id="menubtn" title="Menu (Esc)" aria-label="Menu">&#9776;</button>
+    </div>
+    <div id="camctl">
+      <button class="ibtn" id="rotl" title="Rotate camera left (Q)" aria-label="Rotate camera left">&#10226;</button>
+      <button class="ibtn" id="rotr" title="Rotate camera right (E)" aria-label="Rotate camera right">&#10227;</button>
+      <button class="ibtn" id="zin" title="Zoom in (+)" aria-label="Zoom in">+</button>
+      <button class="ibtn" id="zout" title="Zoom out (-)" aria-label="Zoom out">&minus;</button>
+    </div>
+    <div id="log" aria-live="polite"></div>
+    <div id="enemyind"></div>
+    <div id="toolbar">
+      <button class="tb" id="b-wait" title="Wait and search (Space). Hold or press Z to rest."><span class="k">SPC</span><canvas width="16" height="16"></canvas><span class="lbl">Search</span></button>
+      <button class="tb" id="b-rest" title="Rest until healed (Z)"><span class="k">Z</span><canvas width="16" height="16"></canvas><span class="lbl">Rest</span></button>
+      <button class="tb" id="b-inv" title="Backpack (I)"><span class="k">I</span><canvas width="16" height="16"></canvas><span class="lbl">Bag</span></button>
+      <button class="tb" id="b-ab" title="Use your power (R)" hidden><span class="k">R</span><span class="lbl">Power</span><span class="q"></span></button>
+      <span class="sep"></span>
+      <button class="tb qs" data-q="0"><span class="k">1</span><canvas width="16" height="16"></canvas><span class="q"></span></button>
+      <button class="tb qs" data-q="1"><span class="k">2</span><canvas width="16" height="16"></canvas><span class="q"></span></button>
+      <button class="tb qs" data-q="2"><span class="k">3</span><canvas width="16" height="16"></canvas><span class="q"></span></button>
+      <button class="tb qs" data-q="3"><span class="k">4</span><canvas width="16" height="16"></canvas><span class="q"></span></button>
+    </div>
+    <div id="targetbar" class="slab" hidden></div>
+  </div>
+  <div id="toast"></div>
+  <div id="fade"></div>
+  <div id="modal" hidden></div>
+  <div id="title" hidden></div>
+  <div id="loading">Lighting torches&hellip;</div>
+</div>
+<script src="vendor/three.min.js"></script>
+<script src="auth.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
