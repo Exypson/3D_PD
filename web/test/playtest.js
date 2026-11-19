@@ -219,9 +219,9 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     await section('subclasses', async () => {
       await fresh('warrior'); await goTo(10);
       const boss = pd.L.mobs.find(m => MOBS[m.type].boss); kill(boss); await wait(1800);
-      const opts = [...document.querySelectorAll('#modal [data-sub]')].map(b => b.dataset.sub);
+      const opts = [...document.querySelectorAll('#modal [data-pick]')].map(b => b.dataset.pick);
       check('subclass: the floor-10 boss offers the class\'s two paths', opts.join() === 'juggernaut,duelist', opts);
-      document.querySelector('#modal [data-sub="juggernaut"]')?.click();
+      document.querySelector('#modal [data-pick="juggernaut"]')?.click();
       const h = pd.G.hero; check('subclass: picking a path sets it', h.sub === 'juggernaut', h.sub);
       clearMobs(); god(); damage(h, 3, 'test'); damage(h, 3, 'test');
       check('juggernaut: hits taken build momentum', h.mom === 2, h.mom);
@@ -262,9 +262,9 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
     await section('powers', async () => {
       await fresh('warrior'); await goTo(15);
       kill(pd.L.mobs.find(m => MOBS[m.type].boss)); await wait(1800);
-      const opts = [...document.querySelectorAll('#modal [data-ab]')].map(b => b.dataset.ab);
+      const opts = [...document.querySelectorAll('#modal [data-pick]')].map(b => b.dataset.pick);
       check('power: the floor-15 guardian offers three powers', opts.join() === 'blink,shockwave,secondwind', opts);
-      document.querySelector('#modal [data-ab="blink"]')?.click(); await wait(50);
+      document.querySelector('#modal [data-pick="blink"]')?.click(); await wait(50);
       const h = pd.G.hero;
       check('power: picking one sets it, ready to use, with a HUD button', h.ab === 'blink' && h.abCh === 100 && !document.getElementById('b-ab').hidden, [h.ab, h.abCh]);
       clearMobs(); let cells = openSpot(3);
@@ -329,6 +329,9 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       check('quest: the cartographer waits on floor 7', !!npc);
       await talkTo(npc); ui('[data-q="yes"]')?.click();
       check('cartographer: accepting makes them follow, and they can now be hurt', !!npc.escort && npc.ally && !invulnerable(npc));
+      { const nb0 = near(h.x, h.y, 1)[0]; npc.x = nb0[0]; npc.y = nb0[1]; pd.Render.sync(true); await ready();
+        pd.act(() => heroMove(nb0[0] - h.x, nb0[1] - h.y)); const noDialog = document.getElementById('modal').hidden; await ready();
+        check('cartographer: walking into them swaps places, with no dialog', noDialog && h.x === nb0[0] && h.y === nb0[1], [noDialog, h.x, h.y, nb0]); }
       const ex = cx_(L.exit), ey = cy_(L.exit), by = near(ex, ey, 1)[0]; h.x = by[0]; h.y = by[1];
       const nb = near(h.x, h.y, 1)[0]; npc.x = nb[0]; npc.y = nb[1]; pd.Render.sync(true);
       h.inv.length = 0; pd.changeLevel('down'); for (let i = 0; i < 200 && (pd.G.depth !== 8 || pd.V.busy); i++) await wait(25);
@@ -337,6 +340,11 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       await fresh('warrior'); await goTo(7); npc = pd.L.mobs.find(m => m.type === 'cartographer');
       await talkTo(npc); ui('[data-q="yes"]')?.click(); damage(npc, 999, 'test');
       check('cartographer: the quest fails if they die', questOf('cartographer').state === 'failed');
+      await fresh('warrior'); await goTo(7); L = pd.L; npc = L.mobs.find(m => m.type === 'cartographer');
+      await talkTo(npc); ui('[data-q="yes"]')?.click();
+      npc.x = cx_(L.entrance); npc.y = cy_(L.entrance); { const b2 = near(cx_(L.exit), cy_(L.exit), 1)[0]; pd.G.hero.x = b2[0]; pd.G.hero.y = b2[1]; } pd.Render.sync(true);
+      pd.changeLevel('down'); for (let i = 0; i < 200 && (pd.G.depth !== 8 || pd.V.busy); i++) await wait(25);
+      check('cartographer: left behind, the quest fails and they cannot be escorted later', questOf('cartographer').state === 'failed' && !pd.G.levels[7].mobs.some(m => m.type === 'cartographer'));
 
       await fresh('warrior'); await goTo(12); L = pd.L; h = pd.G.hero; npc = L.mobs.find(m => m.type === 'foreman');
       check('quest: the foreman waits on floor 12 with three ore veins', !!npc && L.mobs.filter(m => m.type === 'ore').length === 3);
@@ -345,18 +353,22 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       for (const o of L.mobs.filter(m => m.type === 'ore')) for (let k = 0; k < 3; k++) await doAct(() => mineOre(o));
       check('foreman: three veins mined, three blows each', questOf('foreman').ore === 3 && !L.mobs.some(m => m.type === 'ore'));
       check('foreman: mining is loud and wakes monsters nearby', sl.state !== 'sleeping');
-      clearMobs(); h.inv.length = 0; const tgt = mkWeapon('sword', 0), src = mkWeapon('mace', 3); h.inv.push(tgt, src);
+      clearMobs(); h.inv.length = 0; const tgt = mkWeapon('sword', 0), src = mkWeapon('mace', 3), cur = mkWeapon('spear', 2); cur.cursed = true; h.eq.weapon = cur; h.inv.push(tgt, src);
       await talkTo(npc); ui('[data-q="reforge"]')?.click(); await wait(80);
       ui('.slot[data-id="' + tgt.id + '"]')?.click(); await wait(80);
+      check('foreman: an equipped cursed weapon cannot be melted down', ui('.slot[data-id="' + cur.id + '"]')?.style.opacity === '0.3');
       ui('.slot[data-id="' + src.id + '"]')?.click(); await wait(50);
       check('foreman: reforging moves the upgrades onto the chosen item', tgt.lvl === 3 && !findItem(src.id) && questOf('foreman').state === 'done', tgt.lvl);
 
       await goTo(17); L = pd.L; npc = L.mobs.find(m => m.type === 'scholar');
       check('quest: the scholar waits on floor 17', !!npc);
-      await talkTo(npc); ui('[data-q="yes"]')?.click();
       for (let i = 0; i < 6; i++) kill(spawn('rat', 2));
-      check('scholar: slaying six creatures on the floor counts', questOf('scholar').kills >= 6, questOf('scholar').kills);
-      h.inv.length = 0; await talkTo(npc); const wb = ui('[data-q]:not([data-q="bye"])'), wk = wb && wb.dataset.q; wb?.click(); await wait(50);
+      await talkTo(npc); ui('[data-q="yes"]')?.click();
+      check('scholar: kills made before accepting count', (L.kills || 0) >= 6, L.kills);
+      h.inv.length = 0; await talkTo(npc); const offer1 = [...document.querySelectorAll('#modal [data-q]')].map(b => b.dataset.q).join();
+      await talkTo(npc); const offer2 = [...document.querySelectorAll('#modal [data-q]')].map(b => b.dataset.q).join();
+      check('scholar: reopening shows the same wand offer', offer1 === offer2 && offer1.split(',').length === 3, [offer1, offer2]);
+      const wb = ui('[data-q]:not([data-q="bye"])'), wk = wb && wb.dataset.q; wb?.click(); await wait(50);
       check('scholar: the reward is the chosen wand at +2', h.inv.some(i => i.k === 'wand' && i.t === wk && i.lvl === 2) && questOf('scholar').state === 'done', wk);
 
       await goTo(22); L = pd.L; npc = L.mobs.find(m => m.type === 'bargainer');

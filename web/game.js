@@ -348,6 +348,12 @@ const ABILITIES = {
   shockwave:  { n:'Shockwave',   d:'Knock back every enemy next to you and stun them for a moment.' },
   secondwind: { n:'Second Wind', d:'Heal 30% of your health and shake off poison, fire, slowing and weakness.' },
 };
+function pushAway(m, fx, fy){ // one tile straight away from (fx, fy), if that tile is free
+  if (m.dead || MOBS[m.type].boss || MOBS[m.type].immobile || MOBS[m.type].passive) return false;
+  const nx = m.x + Math.sign(m.x - fx), ny = m.y + Math.sign(m.y - fy);
+  if (!inb(L, nx, ny) || !TP.pass[L.tiles[ny*L.w + nx]] || charAt(nx, ny) || !diagOK(L, m.x, m.y, nx, ny)) return false;
+  m.x = nx; m.y = ny; FX.move(m); onEnter(m, cellOf(m), false); return true;
+}
 function useAbility(tx, ty){
   const h = G.hero;
   if (!h.ab) return false;
@@ -360,8 +366,7 @@ function useAbility(tx, ty){
     const d = mkMob('image', ox, oy); d.life = 6; d.state = 'hunting'; d.time = h.time + 1; L.mobs.push(d); FX.spawn(d);
   } else if (h.ab === 'shockwave'){
     for (const m of L.mobs.slice()) if (!m.dead && !m.ally && !MOBS[m.type].passive && cheb(m.x, m.y, h.x, h.y) === 1){
-      if (!MOBS[m.type].boss && !MOBS[m.type].immobile){ const nx = m.x + Math.sign(m.x - h.x), ny = m.y + Math.sign(m.y - h.y);
-        if (inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w + nx]] && !charAt(nx, ny) && diagOK(L, m.x, m.y, nx, ny)){ m.x = nx; m.y = ny; FX.move(m); onEnter(m, cellOf(m), false); } }
+      pushAway(m, h.x, h.y);
       addBuff(m, 'para', 2);
     }
     FX.burst(h.x, h.y, 0xe8d8a0, 24, 1.2); FX.shake(0.2);
@@ -1311,10 +1316,7 @@ function doAttack(att, def, opts){
   if (isHero(att) && att.eq.weapon && !opts.ranged) weaponUsed(att.eq.weapon);
   if (isHero(att) && (att.buffs.invis || (att.eq.art && att.eq.art.active))){ breakInvis(); }
   damage(def, dmg, att, opts);
-  if (knock && !def.dead && !MOBS[def.type].boss && !MOBS[def.type].immobile && !MOBS[def.type].passive){
-    const nx = def.x + Math.sign(def.x - att.x), ny = def.y + Math.sign(def.y - att.y);
-    if (inb(L, nx, ny) && TP.pass[L.tiles[ny*L.w + nx]] && !charAt(nx, ny) && diagOK(L, def.x, def.y, nx, ny)){ def.x = nx; def.y = ny; FX.move(def); onEnter(def, cellOf(def), false); }
-  }
+  if (knock) pushAway(def, att.x, att.y);
   return true;
 }
 function breakInvis(){
@@ -1420,7 +1422,7 @@ function die(ch, src){
   if (!ch.ally){
     if (heroSees(ch.x, ch.y)) log(TheName(ch) + ' is slain.', 'info');
     G.stats.kills++;
-    if (G.depth === 17 && G.quests && G.quests.scholar && G.quests.scholar.state === 'active') G.quests.scholar.kills = (G.quests.scholar.kills || 0) + 1;
+    L.kills = (L.kills || 0) + 1;
     if (G.hero.ab) G.hero.abCh = Math.min(100, (G.hero.abCh || 0) + 10);
     if (!ch.noexp && G.hero.lvl <= d.max) earnExp(d.exp);
     const c = cellOf(ch);
@@ -1791,7 +1793,7 @@ function changeLevel(dir, toDepth){
         questOf('cartographer').state = 'done'; npcLeaves(esc); G.mapNext = true;
         for (let i = 0; i < 2; i++) giveItem(mkScroll('mapping'));
         log('"You got me out! Take my spare maps, and here: the next floor, sketched from memory."', 'good');
-      } else { questOf('cartographer').state = 'failed'; log('You left the cartographer behind.', 'bad'); }
+      } else { questOf('cartographer').state = 'failed'; npcLeaves(esc); log('You left the cartographer behind. They slip away into the dark.', 'bad'); }
     }
     L.mobs = L.mobs.filter(m => m.type !== 'image');
     G.depth = toDepth || (G.depth + (dir === 'down' ? 1 : -1));
@@ -1878,7 +1880,7 @@ function heroMove(dx, dy){
   if (!inb(L, nx, ny)) return false;
   const c = ny*L.w + nx, tile = L.tiles[c];
   const m = mobAt(L, nx, ny);
-  if (m && MOBS[m.type].passive){ UI.interact(m); return false; }
+  if (m && MOBS[m.type].passive && !m.escort){ UI.interact(m); return false; }
   if (m && !m.ally){
     if (!diagOK(L, h.x, h.y, nx, ny)) return false;
     return heroAttack(m);
@@ -4428,20 +4430,23 @@ const UI = (() => {
       case 'shoot': closeWindow(); startTargeting('shoot', it, -1); break;
     }
   }
+  function chooseOne(title, text, opts, onPick){ // opts: [key, name, description]
+    openWindow(`<h2>${title}</h2><p>${text}</p>
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px">${opts.map(([k, n, d]) => `<button class="btn" data-pick="${k}" style="text-align:left"><b>${n}</b><br><span style="font-family:var(--f-body);font-size:13px">${esc(d)}</span></button>`).join('')}</div>
+      <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => {
+        onPick(b.dataset.pick); FX.levelUp(G.hero); Sound.play('level'); closeWindow(); update(); saveGame(); })));
+  }
   function choosePath(){
     const h = G.hero; if (h.sub || !$('modal').hidden) return;
-    const opts = Object.keys(SUBCLASSES).filter(k => SUBCLASSES[k].cls === h.cls);
-    openWindow(`<h2>Choose your path</h2><p>The guardian's fall sharpens your skills. Pick one; it lasts for the rest of the run.</p>
-      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px">${opts.map(k => `<button class="btn" data-sub="${k}" style="text-align:left"><b>${SUBCLASSES[k].n}</b><br><span style="font-family:var(--f-body);font-size:13px">${esc(SUBCLASSES[k].d)}</span></button>`).join('')}</div>
-      <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => {
-        h.sub = b.dataset.sub; log('You walk the path of the ' + SUBCLASSES[h.sub].n + '.', 'mag'); FX.levelUp(h); Sound.play('level'); closeWindow(); saveGame(); })));
+    chooseOne('Choose your path', 'The guardian\'s fall sharpens your skills. Pick one; it lasts for the rest of the run.',
+      Object.keys(SUBCLASSES).filter(k => SUBCLASSES[k].cls === h.cls).map(k => [k, SUBCLASSES[k].n, SUBCLASSES[k].d]),
+      k => { h.sub = k; log('You walk the path of the ' + SUBCLASSES[k].n + '.', 'mag'); });
   }
   function chooseAbility(){
     const h = G.hero; if (h.ab || !$('modal').hidden) return;
-    openWindow(`<h2>Choose a power</h2><p>The guardian's armor holds one power for you to keep for the rest of the run. It recharges as you explore and fight.</p>
-      <div class="row" style="flex-direction:column;align-items:stretch;gap:10px">${Object.keys(ABILITIES).map(k => `<button class="btn" data-ab="${k}" style="text-align:left"><b>${ABILITIES[k].n}</b><br><span style="font-family:var(--f-body);font-size:13px">${esc(ABILITIES[k].d)}</span></button>`).join('')}</div>
-      <p style="color:var(--dim);font-size:12px">Closing this asks again on the next floor.</p>`, p => p.querySelectorAll('[data-ab]').forEach(b => b.addEventListener('click', () => {
-        h.ab = b.dataset.ab; h.abCh = 100; log('You claim ' + ABILITIES[h.ab].n + '. Press R or the power button to use it.', 'mag'); FX.levelUp(h); Sound.play('level'); closeWindow(); update(); saveGame(); })));
+    chooseOne('Choose a power', 'The guardian\'s armor holds one power for you to keep for the rest of the run. It recharges as you explore and fight.',
+      Object.keys(ABILITIES).map(k => [k, ABILITIES[k].n, ABILITIES[k].d]),
+      k => { h.ab = k; h.abCh = 100; log('You claim ' + ABILITIES[k].n + '. Press R or the power button to use it.', 'mag'); });
   }
   function usePower(){
     if (!G || G.over || !G.hero.ab || heroBusy()) return;
@@ -4721,14 +4726,14 @@ const UI = (() => {
       return talk(m, '"Good ore. Pick a piece to strengthen, then the piece to melt down into it."', [['reforge', 'Reforge', true], ['bye', 'Later']], () => {
         chooseItem('Strengthen which item?', i => ['weapon', 'armor'].includes(i.k), target => {
           if (!target) return;
-          chooseItem('Melt down which ' + target.k + '?', i => i.k === target.k && i !== target, source => { if (source && reforge(target, source)){ q.state = 'done'; update(); saveGame(); } });
+          chooseItem('Melt down which ' + target.k + '?', i => i.k === target.k && i !== target && !(i.cursed && isEquipped(i)), source => { if (source && reforge(target, source)){ q.state = 'done'; update(); saveGame(); } });
         });
       });
     }
     if (m.type === 'scholar'){
-      if (q.state === 'new') return talk(m, '"My own spell binds me. Each creature that dies on this floor loosens it. Slay six, and one of my wands is yours."', [['yes', 'I will hunt', true], ['bye', 'Not now']], accept);
-      if ((q.kills || 0) < 6) return talk(m, '"The chains still hold. ' + (q.kills || 0) + ' of six."', [['bye', 'Back to the hunt', true]]);
-      const picks = R.shuffle(Object.keys(WANDS).slice()).slice(0, 3);
+      if (q.state === 'new') return talk(m, '"My own spell binds me. Each creature that dies on this floor loosens it. Six deaths, and one of my wands is yours.' + (L.kills ? ' ' + Math.min(6, L.kills) + ' have fallen already.' : '') + '"', [['yes', 'I will hunt', true], ['bye', 'Not now']], accept);
+      if ((L.kills || 0) < 6) return talk(m, '"The chains still hold. ' + (L.kills || 0) + ' of six."', [['bye', 'Back to the hunt', true]]);
+      const picks = q.picks || (q.picks = R.shuffle(Object.keys(WANDS).slice()).slice(0, 3));
       return talk(m, '"Free at last. Choose one."', picks.map((k, i) => [k, 'Wand of ' + WANDS[k].name + ' (+2)', i === 0]), k => {
         giveItem(mkWand(k, 2)); q.state = 'done'; npcLeaves(m); log('The scholar vanishes in a swirl of light.', 'mag'); done(); });
     }
