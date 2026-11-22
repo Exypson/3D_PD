@@ -24,6 +24,8 @@ package com.watabou.utils;
 import com.badlogic.gdx.utils.reflect.ClassReflection;
 import com.watabou.noosa.Game;
 
+import java.util.function.Function;
+
 //wrapper for libGDX reflection
 public class Reflection {
 	
@@ -37,14 +39,23 @@ public class Reflection {
 	
 	public static <T> T newInstance( Class<T> cls ){
 		try {
-			return ClassReflection.newInstance(cls);
+			return newInstanceUnhandled(cls);
 		} catch (Exception e) {
 			Game.reportException(e);
 			return null;
 		}
 	}
 	
+	// Set by the web build only: TeaVM cannot construct arbitrary classes by reflection, so it supplies a
+	// generated factory (class name -> new instance). Returns null for classes it doesn't know.
+	public static Function<String, Object> factory = null;
+
+	@SuppressWarnings("unchecked")
 	public static <T> T newInstanceUnhandled( Class<T> cls ) throws Exception {
+		if (factory != null){
+			Object o = factory.apply(cls.getName());
+			if (o != null) return (T) o;
+		}
 		return ClassReflection.newInstance(cls);
 	}
 	
