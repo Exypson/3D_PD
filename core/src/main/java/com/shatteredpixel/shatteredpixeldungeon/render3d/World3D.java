@@ -25,6 +25,7 @@ import com.badlogic.gdx.graphics.PerspectiveCamera;
 import com.badlogic.gdx.graphics.VertexAttribute;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.math.Matrix4;
+import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.math.collision.Ray;
 import com.badlogic.gdx.utils.FloatArray;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
@@ -33,6 +34,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
+import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
@@ -303,62 +305,26 @@ public class World3D implements GameScene.WorldView {
 
 	// ---------- characters and items ----------
 
-	private static float spriteX(CharSprite s) { return (s.x + s.width() / 2f) / 16f - 0.5f; }
-	private static float spriteZ(CharSprite s) { return (s.y + s.height()) / 16f - 1f; }
+
+	private final Models3D models = new Models3D(this);
 
 	private void buildDynamic(Level lv) {
 		buf.clear();
 		float time = Game.timeTotal;
-		figure(Dungeon.hero, heroColor(), time);
-		for (Mob m : lv.mobs.toArray(new Mob[0])) {
-			figure(m, typeColor(m.getClass().getSimpleName()), time);
-		}
+		models.character(Dungeon.hero, time);
+		for (Mob m : lv.mobs.toArray(new Mob[0])) models.character(m, time);
 		for (Heap heap : lv.heaps.valueList()) {
 			if (heap.sprite == null || !heap.sprite.visible || !lv.heroFOV[heap.pos]) continue;
-			float[] col = heap.peek() == null ? new float[]{0.8f, 0.7f, 0.3f} : typeColor(heap.peek().getClass().getSimpleName());
-			float x = heap.pos % lv.width(), z = heap.pos / lv.width();
-			box(x, 0.12f + 0.05f * (float) Math.sin(time * 2 + heap.pos), z, 0.26f, 0.26f, 0.26f, time * 1.3f + heap.pos, col[0], col[1], col[2]);
+			models.heap(heap, heap.pos % lv.width(), heap.pos / lv.width(), time);
+		}
+		for (Plant p : lv.plants.valueList()) {
+			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
+			models.plant(p, p.pos % lv.width(), p.pos / lv.width(), lv.heroFOV[p.pos] ? 1f : 0.42f);
 		}
 	}
 
-	// an original block figure: legs, body, head; bosses and large creatures are scaled up
-	private void figure(Char ch, float[] col, float time) {
-		CharSprite s = ch.sprite;
-		if (s == null || !s.visible || !ch.isAlive()) return;
-		float x = spriteX(s), z = spriteZ(s);
-		float k = Char.hasProp(ch, Char.Property.BOSS) ? 1.6f : (Char.hasProp(ch, Char.Property.LARGE) ? 1.35f : 1f);
-		float bob = 0.02f * (float) Math.sin(time * 3 + ch.id());
-		float yaw = s.flipHorizontal ? (float) Math.PI : 0f;
-		box(x, 0f, z, 0.32f * k, 0.28f * k, 0.22f * k, yaw, col[0] * 0.45f, col[1] * 0.45f, col[2] * 0.45f);
-		box(x, 0.28f * k + bob, z, 0.42f * k, 0.36f * k, 0.28f * k, yaw, col[0], col[1], col[2]);
-		box(x, 0.64f * k + bob, z, 0.3f * k, 0.28f * k, 0.28f * k, yaw, Math.min(1, col[0] * 1.35f + 0.1f), Math.min(1, col[1] * 1.35f + 0.1f), Math.min(1, col[2] * 1.35f + 0.1f));
-	}
-
-	private static float[] heroColor() {
-		switch (Dungeon.hero.heroClass) {
-			case WARRIOR: return new float[]{0.72f, 0.22f, 0.18f};
-			case MAGE: return new float[]{0.42f, 0.29f, 0.78f};
-			case ROGUE: return new float[]{0.3f, 0.33f, 0.4f};
-			case HUNTRESS: return new float[]{0.23f, 0.54f, 0.29f};
-			case DUELIST: return new float[]{0.7f, 0.55f, 0.2f};
-			default: return new float[]{0.85f, 0.78f, 0.45f};
-		}
-	}
-
-	// a stable, distinct colour per monster or item type
-	private static float[] typeColor(String name) {
-		float hue = (name.hashCode() & 0xffff) / 65535f * 6f;
-		int i = (int) hue;
-		float f = hue - i, v = 0.75f, s = 0.55f, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
-		switch (i % 6) {
-			case 0: return new float[]{v, t, p};
-			case 1: return new float[]{q, v, p};
-			case 2: return new float[]{p, v, t};
-			case 3: return new float[]{p, q, v};
-			case 4: return new float[]{t, p, v};
-			default: return new float[]{v, p, q};
-		}
-	}
+	static float spriteX(CharSprite s) { return (s.x + s.width() / 2f) / 16f - 0.5f; }
+	static float spriteZ(CharSprite s) { return (s.y + s.height()) / 16f - 1f; }
 
 	// ---------- geometry primitives (two triangles per face, non-indexed) ----------
 
@@ -401,6 +367,30 @@ public class World3D implements GameScene.WorldView {
 			float nx = (a[1] - bb[1]), nz = (bb[0] - a[0]);
 			float len = (float) Math.sqrt(nx * nx + nz * nz);
 			face(new float[]{a[0], y, a[1], a[0], y1, a[1], bb[0], y1, bb[1], bb[0], y, bb[1]}, -nx / len, 0, -nz / len, r * 0.85f, g * 0.85f, b * 0.85f);
+		}
+	}
+
+	private static final float[][] CUBE = { // face normal, then 4 corners of the unit cube
+			{0, 1, 0,  -.5f, .5f, -.5f,  -.5f, .5f, .5f,  .5f, .5f, .5f,  .5f, .5f, -.5f},
+			{0, -1, 0, -.5f, -.5f, .5f,  -.5f, -.5f, -.5f,  .5f, -.5f, -.5f,  .5f, -.5f, .5f},
+			{0, 0, 1,  -.5f, -.5f, .5f,  -.5f, .5f, .5f,  .5f, .5f, .5f,  .5f, -.5f, .5f},
+			{0, 0, -1, .5f, -.5f, -.5f,  .5f, .5f, -.5f,  -.5f, .5f, -.5f,  -.5f, -.5f, -.5f},
+			{1, 0, 0,  .5f, -.5f, .5f,  .5f, .5f, .5f,  .5f, .5f, -.5f,  .5f, -.5f, -.5f},
+			{-1, 0, 0, -.5f, -.5f, -.5f,  -.5f, .5f, -.5f,  -.5f, .5f, .5f,  -.5f, -.5f, .5f},
+	};
+	private final Vector3 tv = new Vector3(), tn = new Vector3();
+	private final float[] fc = new float[12];
+
+	// the unit cube (-0.5..0.5) transformed by m, in one colour scaled by light (fog)
+	void cube(Matrix4 m, int rgb, float light) {
+		float r = ((rgb >> 16) & 255) / 255f * light, g = ((rgb >> 8) & 255) / 255f * light, b = (rgb & 255) / 255f * light;
+		for (float[] f : CUBE) {
+			tn.set(f[0], f[1], f[2]).rot(m).nor();
+			for (int i = 0; i < 4; i++) {
+				tv.set(f[3 + i * 3], f[4 + i * 3], f[5 + i * 3]).mul(m);
+				fc[i * 3] = tv.x; fc[i * 3 + 1] = tv.y; fc[i * 3 + 2] = tv.z;
+			}
+			face(fc, tn.x, tn.y, tn.z, r, g, b);
 		}
 	}
 
