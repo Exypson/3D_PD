@@ -300,15 +300,15 @@ const FOODS = {
   meat:   { name:'Mystery Meat', sat:150, val:5, desc:'Eat at your own risk. It might not agree with you.' },
 };
 const TRAPS = {
-  fire:     { name:'Fire trap', color:'#ff7a2a', desc:'Bursts into flames when stepped on.' },
-  poison:   { name:'Poison dart trap', color:'#9ad84a', desc:'Fires a poisoned dart.' },
-  teleport: { name:'Teleportation trap', color:'#4ad0ff', desc:'Teleports whoever steps on it.' },
-  alarm:    { name:'Alarm trap', color:'#ff4a4a', desc:'Shrieks loudly, alerting every monster on the floor.' },
-  paralysis:{ name:'Paralytic trap', color:'#f0e04a', desc:'Releases paralytic gas.' },
-  toxic:    { name:'Toxic gas trap', color:'#6ab04a', desc:'Releases a cloud of toxic gas.' },
-  frost:    { name:'Chilling trap', color:'#a8e8ff', desc:'Freezes the area around it.' },
-  grip:     { name:'Gripping trap', color:'#b0b0b0', desc:'Steel jaws snap shut, wounding and crippling.' },
-  summon:   { name:'Summoning trap', color:'#4ae0b0', desc:'Summons monsters from elsewhere on the floor.' },
+  fire:     { name:'Fire trap', color:'#ff7a2a', desc:'Bursts into flames, setting whoever steps on it and the tiles around it alight.' },
+  poison:   { name:'Poison dart trap', color:'#9ad84a', desc:'Fires a poisoned dart. The poison deals damage every turn and gets stronger deeper down.' },
+  teleport: { name:'Teleportation trap', color:'#4ad0ff', desc:'Flings whoever steps on it to a random spot on this floor.' },
+  alarm:    { name:'Alarm trap', color:'#ff4a4a', desc:'Shrieks loudly, waking every monster on the floor and sending them to this spot.' },
+  paralysis:{ name:'Paralytic trap', color:'#f0e04a', desc:'Releases a cloud of paralytic gas. Anyone inside it cannot move until it clears.' },
+  toxic:    { name:'Toxic gas trap', color:'#6ab04a', desc:'Releases a large cloud of toxic gas that hurts everything breathing it.' },
+  frost:    { name:'Chilling trap', color:'#a8e8ff', desc:'Freezes the tiles around it, chilling or freezing anyone standing there.' },
+  grip:     { name:'Gripping trap', color:'#b0b0b0', desc:'Steel jaws snap shut: damage, a crippled leg, and a few turns rooted in place.' },
+  summon:   { name:'Summoning trap', color:'#4ae0b0', desc:'Calls two hunting monsters to the tiles beside it.' },
 };
 const TRAP_POOLS = [
   ['grip','poison','teleport','alarm','frost'],
@@ -1934,6 +1934,8 @@ function canReach(h, m){
   return false;
 }
 function heroWait(){ searchAround(G.hero.cls === 'rogue' ? 2 : 1, 1); return 1; }
+function heroSearch(){ const r = G.hero.cls === 'rogue' ? 3 : 2; FX.search(G.hero, r); if (!searchAround(r, 1)) log('You search the area but find nothing.', 'info'); return 1; }
+function heroRest(){ FX.rest(G.hero); return heroWait(); }
 function heroEat(it){
   const h = G.hero; const f = FOODS[it.t];
   takeOne(it);
@@ -2824,13 +2826,6 @@ function makeAtlas(region){
   paint(TILE.VOID, (x,y) => ({ c: [8, 8, 10] }));
   paint(TILE.PIT, (x,y) => ({ c: sh(P.wall[2], 0.35 + (32-y)/32*0.3) }));
   paint(TILE.THRONE, (x,y) => { const e = x < 3 || x > 28 || y < 3; return { c: e ? P.accent : sh([110, 40, 120], 0.85 + N(x,y,1)*0.15) }; });
-  paint(TILE.TRAP, (x,y) => {
-    const dx = x - 15.5, dy = y - 15.5, r = Math.sqrt(dx*dx + dy*dy);
-    const edge = x < 2 || y < 2 || x > 29 || y > 29;
-    if (edge) return { c: [60, 60, 60] };
-    if (Math.abs(r - 10) < 1.2 || (r < 5 && (Math.abs(dx) < 1 || Math.abs(dy) < 1))) return { c: [255,255,255], g: [140,140,140] };
-    return { c: [90, 90, 90] };
-  });
   paint(TILE.METAL, (x,y) => ({ c: sh(P.metal, 0.8 + N(x>>1,y>>1,5)*0.3 + (y < 2 ? 0.2 : 0)) }));
   paint(TILE.CLOTH, (x,y) => ({ c: sh([200, 200, 200], 0.85 + N(x>>1,y,5)*0.2) }));
   ctx.putImageData(img, 0, 0); ectx.putImageData(eimg, 0, 0);
@@ -2964,6 +2959,69 @@ function drawArmorIcon(p, t){
   if (t === 'leather'){ p.rect(3, 10, 12, 10, [80, 50, 30]); p.set(7, 10, GOLDC); p.set(8,10,GOLDC); }
   if (t === 'cloth'){ p.rect(3, 13, 12, 13, cd); }
 }
+function drawTrapIcon(p, t){
+  const c = hexRGB(TRAPS[t].color), cd = rgbS(c, 0.62), cl = rgbS(c, 1.3), W = [255, 255, 240];
+  switch (t){
+    case 'fire': // flame
+      p.disc(7.5, 10, 4.2, (x,y,d) => d < 2 ? [255, 236, 120] : (d < 3.2 ? cl : c));
+      for (let y = 2; y < 8; y++){ const w = (y - 2) * 0.55; p.rect(Math.round(7.5 - w), y, Math.round(7.5 + w*0.4), y, c); }
+      p.set(11, 4, c); p.rect(10, 5, 11, 7, c); p.set(4, 6, cd); p.rect(4, 7, 5, 8, cd);
+      p.rect(7, 8, 8, 12, [255, 250, 200]);
+      break;
+    case 'poison': // dart with dripping tip
+      p.line(3, 3, 10, 10, [170, 150, 110]); p.line(4, 3, 11, 10, [120, 100, 70]);
+      p.rect(2, 2, 3, 4, [220, 70, 60]); p.rect(2, 2, 4, 3, [220, 70, 60]);
+      p.line(11, 11, 13, 13, STEEL); p.set(12, 11, STEEL_D);
+      p.disc(12.5, 14, 1.2, c); p.set(14, 12, cl);
+      break;
+    case 'teleport': // spiral
+      for (let a = 0; a < 15; a += 0.12){ const r = 0.5 + a * 0.42; p.set(7.5 + Math.cos(a) * r, 7.5 + Math.sin(a) * r, a < 5 ? W : (a < 10 ? cl : c)); }
+      break;
+    case 'alarm': // bell with sound waves
+      p.disc(7.5, 8, 4, (x,y) => y >= 5 ? GOLDC : null); p.rect(3, 9, 12, 11, GOLDC); p.rect(2, 11, 13, 12, GOLD_D);
+      p.rect(7, 3, 8, 4, GOLD_D); p.rect(7, 13, 8, 14, c); p.rect(5, 6, 5, 9, [255, 236, 150]);
+      p.line(0, 4, 1, 7, c); p.line(15, 4, 14, 7, c);
+      break;
+    case 'paralysis': // lightning bolt
+      p.line(10, 1, 5, 8, c); p.line(11, 1, 6, 8, c); p.rect(5, 7, 11, 8, c);
+      p.line(10, 8, 5, 15, c); p.line(11, 8, 6, 15, cl); p.line(9, 2, 6, 7, W);
+      break;
+    case 'toxic': // skull in a gas cloud
+      for (const [x, y, r] of [[3, 11, 2.6], [12, 11, 2.6], [7.5, 13, 2.4]]) p.disc(x, y, r, cd);
+      p.disc(7.5, 6.5, 4.6, [226, 230, 200]); p.rect(5, 10, 10, 12, [226, 230, 200]);
+      p.rect(5, 6, 6, 7, [30, 50, 20]); p.rect(9, 6, 10, 7, [30, 50, 20]); p.set(7, 9, [30, 50, 20]); p.set(8, 9, [30, 50, 20]);
+      p.set(6, 12, cd); p.set(8, 12, cd);
+      break;
+    case 'frost': // snowflake
+      for (const [dx, dy] of [[1,0],[0,1],[1,1],[1,-1]]){ p.line(7.5 - dx*6, 7.5 - dy*6, 7.5 + dx*6, 7.5 + dy*6, c); }
+      for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]){ const x = 7.5 + dx*4, y = 7.5 + dy*4; p.set(x + dy, y + dx, cl); p.set(x - dy, y - dx, cl); }
+      p.disc(7.5, 7.5, 1.2, W);
+      break;
+    case 'grip': // open steel jaws
+      p.rect(1, 3, 14, 4, STEEL_D); p.rect(1, 11, 14, 12, STEEL_D);
+      for (let x = 1; x < 15; x += 3){ p.line(x, 5, x + 1, 7, STEEL); p.line(x + 2, 5, x + 1, 7, STEEL); p.line(x, 10, x + 1, 8, STEEL); p.line(x + 2, 10, x + 1, 8, STEEL); }
+      p.disc(7.5, 7.5, 1.3, [200, 60, 50]);
+      break;
+    case 'summon': // ring of arrival marks
+      p.disc(7.5, 7.5, 6.6, (x,y,d) => d > 5.4 ? c : null);
+      for (const [dx, dy] of [[0,-1],[1,0],[0,1],[-1,0]]) p.disc(7.5 + dx*4, 7.5 + dy*4, 1, cl);
+      p.rect(7, 5, 8, 10, W); p.rect(6, 6, 9, 7, W);
+      break;
+  }
+}
+// 64px floor plate: dark stone, a rim in the trap's colour, the glyph in the middle
+const TRAP_TEX = new Map();
+function trapPlate(t){
+  let cv = TRAP_TEX.get(t); if (cv) return cv;
+  cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const x = cv.getContext('2d'); x.imageSmoothingEnabled = false;
+  x.fillStyle = '#2a2622'; x.fillRect(0, 0, 64, 64);
+  x.fillStyle = '#3a342e'; x.fillRect(4, 4, 56, 56);
+  x.strokeStyle = TRAPS[t].color; x.lineWidth = 3; x.strokeRect(6.5, 6.5, 51, 51);
+  x.fillStyle = '#17130f'; for (const [a, b] of [[9,9],[52,9],[9,52],[52,52]]) x.fillRect(a, b, 3, 3);
+  x.drawImage(iconCanvas('trap:' + t), 12, 12, 40, 40);
+  TRAP_TEX.set(t, cv); return cv;
+}
 function itemIconKey(it){
   switch (it.k){
     case 'potion': return 'potion:' + G.looks.potion[it.t];
@@ -3044,6 +3102,7 @@ function iconCanvas(key){
       break;
     }
     case 'hero': drawPortrait(p, t); break;
+    case 'trap': drawTrapIcon(p, t); break;
   }
   p.outline();
   cv = p.toCanvas();
@@ -3460,7 +3519,7 @@ const Render = (() => {
   const atlases = {};
   const U = { uFog:{ value:null }, uMapSize:{ value:new THREE.Vector2(1,1) }, uHero:{ value:new THREE.Vector3() }, uCamDir:{ value:new THREE.Vector2(0,1) }, uTime:{ value:0 } };
   let fogTex = null, fogData = null, fogCur = null, fogW = 0, fogH = 0;
-  let floorMesh = null, wallMesh = null, waterMesh = null, grassMesh = null, trapMesh = null, warnMesh = null, webMesh = null, cursorMesh = null;
+  let floorMesh = null, wallMesh = null, waterMesh = null, grassMesh = null, warnMesh = null, webMesh = null, cursorMesh = null;
   let doorObjs = [], torchObjs = [], barrier = null, barrierMat = null;
   let mats = null; let curRegion = -1;
   const models = new Map();
@@ -3596,11 +3655,8 @@ const Render = (() => {
     const water = patch(new THREE.MeshStandardMaterial({ color: new THREE.Color(reg.water[0]*1.3, reg.water[1]*1.3, reg.water[2]*1.3), transparent: true, opacity: 0.84, roughness: 0.1, metalness: 0.3, emissive: new THREE.Color(region === 4 ? 0x601808 : 0x000000) }), { water: true });
     const gcv = makeGrassTex(region); const gtex = new THREE.CanvasTexture(gcv); gtex.magFilter = THREE.NearestFilter; gtex.minFilter = THREE.NearestFilter; gtex.encoding = THREE.sRGBEncoding;
     const grass = patch(new THREE.MeshStandardMaterial({ map: gtex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1 }), { sway: true });
-    const tcv = document.createElement('canvas'); tcv.width = tcv.height = 32; tcv.getContext('2d').drawImage(a.canvas, (TILE.TRAP % AN)*TS, Math.floor(TILE.TRAP/AN)*TS, TS, TS, 0, 0, 32, 32);
-    const ttex = new THREE.CanvasTexture(tcv); ttex.magFilter = THREE.NearestFilter; ttex.encoding = THREE.sRGBEncoding;
-    const trap = patch(new THREE.MeshStandardMaterial({ map: ttex, roughness: 0.7, emissive: new THREE.Color(0x222222) }));
     const items = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 }));
-    atlases[region] = { tex, em, floor, wall, water, grass, trap, items, atlasCanvas: a.canvas };
+    atlases[region] = { tex, em, floor, wall, water, grass, items, atlasCanvas: a.canvas };
     return atlases[region];
   }
 
@@ -3836,21 +3892,28 @@ const Render = (() => {
     levelG.add(grassMesh);
     V.grassDirty = false;
   }
+  // one instanced mesh per trap type (and per disarmed type); materials live for the whole session
+  const trapMats = new Map(); let trapMeshes = [];
+  function trapMat(t, on){
+    const k = t + (on ? '' : '_off'); let m = trapMats.get(k); if (m) return m;
+    const tex = new THREE.CanvasTexture(trapPlate(t)); tex.magFilter = THREE.NearestFilter; tex.encoding = THREE.sRGBEncoding;
+    m = patch(new THREE.MeshStandardMaterial(on ? { map: tex, roughness: 0.6, emissiveMap: tex, emissive: new THREE.Color(TRAPS[t].color), emissiveIntensity: 0.5 } : { map: tex, color: 0x5a5a5a, roughness: 0.9 }));
+    m.userData.glow = on; trapMats.set(k, m); return m;
+  }
   function rebuildTraps(Lv){
-    if (trapMesh){ levelG.remove(trapMesh); trapMesh.geometry.dispose(); trapMesh = null; }
-    const list = [];
-    for (const k in Lv.traps){ const tr = Lv.traps[k]; if (!tr.hidden) list.push([Number(k), tr]); }
+    for (const o of trapMeshes){ levelG.remove(o); o.geometry.dispose(); } trapMeshes = [];
+    const groups = {};
+    for (const k in Lv.traps){ const tr = Lv.traps[k]; if (tr.hidden) continue; const g = tr.t + (tr.active ? '' : '_off'); (groups[g] = groups[g] || []).push(Number(k)); }
     V.trapDirty = false;
-    if (!list.length) return;
-    const g = new THREE.PlaneGeometry(0.62, 0.62); g.rotateX(-Math.PI/2);
-    trapMesh = new THREE.InstancedMesh(g, mats.trap, list.length);
-    const m4 = new THREE.Matrix4(); const col = new THREE.Color();
-    list.forEach(([c, tr], i) => {
-      m4.makeTranslation(c % Lv.w, 0.012, (c / Lv.w) | 0); trapMesh.setMatrixAt(i, m4);
-      col.set(tr.active ? TRAPS[tr.t].color : '#555555').convertSRGBToLinear(); trapMesh.setColorAt(i, col);
-    });
-    trapMesh.instanceMatrix.needsUpdate = true; if (trapMesh.instanceColor) trapMesh.instanceColor.needsUpdate = true;
-    levelG.add(trapMesh);
+    const m4 = new THREE.Matrix4();
+    for (const g in groups){
+      const list = groups[g], [t, off] = g.split('_');
+      const geo = new THREE.PlaneGeometry(0.7, 0.7); geo.rotateX(-Math.PI/2);
+      const mesh = new THREE.InstancedMesh(geo, trapMat(t, !off), list.length);
+      list.forEach((c, i) => { m4.makeTranslation(c % Lv.w, 0.012, (c / Lv.w) | 0); mesh.setMatrixAt(i, m4); });
+      mesh.instanceMatrix.needsUpdate = true; mesh.userData.trap = g;
+      levelG.add(mesh); trapMeshes.push(mesh);
+    }
   }
   function writeFog(full){
     const n = fogW*fogH; let changed = full;
@@ -3877,7 +3940,7 @@ const Render = (() => {
     else m = MDL.build(ch.type);
     const a = { ch, root: m.root, parts: m.parts, kind: m.kind, h: m.h, flying: !!m.flying,
       x: ch.x, z: ch.y, y: cellHeight(L, ch.x, ch.y), fx: ch.x, fz: ch.y, fy: 0, tx: ch.x, tz: ch.y, ty: 0, moveT: 1, moveDur: 0.14, hopH: 0.1,
-      face: 0, faceT: 0, atkT: 1, atkDx: 0, atkDz: 0, hurtT: 1, dead: false, deadT: 0, spawnT: 1, ph: Math.random()*10, look: isHero(ch) ? heroLook() : null, light: null };
+      face: 0, faceT: 0, atkT: 1, atkDx: 0, atkDz: 0, hurtT: 1, lookT: 1, restT: 1, sleepK: 0, zT: 0, dead: false, deadT: 0, spawnT: 1, ph: Math.random()*10, look: isHero(ch) ? heroLook() : null, light: null };
     a.y = a.ty = a.fy = cellHeight(L, ch.x, ch.y);
     if (!m.flying && m.kind !== 'yog'){ const sh = new THREE.Mesh(shadowGeo, shadowMat); sh.rotation.x = -Math.PI/2; sh.position.y = 0.012; sh.scale.setScalar(Math.max(0.6, m.h * 0.9)); a.root.add(sh); }
     else { const sh = new THREE.Mesh(shadowGeo, shadowMat); sh.rotation.x = -Math.PI/2; sh.position.y = 0.012; sh.scale.setScalar(m.kind === 'yog' ? 2.2 : 0.8); a.root.add(sh); }
@@ -4002,6 +4065,7 @@ const Render = (() => {
   }
   // ---------- projectiles & beams ----------
   const boltGeo = new THREE.SphereGeometry(0.09, 8, 6);
+  const ringGeo = new THREE.RingGeometry(0.9, 1, 48).rotateX(-Math.PI/2);
   function addProj(x0, y0, x1, y1, obj, dur, arc, trail, delay){
     const h0 = cellHeight(L, x0, y0) + 0.45, h1 = cellHeight(L, x1, y1) + 0.4;
     obj.position.set(x0, h0, y0); obj.visible = !delay; fxG.add(obj);
@@ -4078,6 +4142,16 @@ const Render = (() => {
       if (a.kind === 'eye' || a.kind === 'bat' || a.kind === 'elemental' || a.kind === 'fist') P.body.position.y = (a.kind === 'bat' ? 0.45 : (a.kind === 'eye' ? 0.55 : (a.kind === 'fist' ? 0.55 : 0.45))) + Math.sin(a.ph*2.2)*0.06;
       if (P.body && a.kind === 'humanoid' || a.kind === 'hero') P.body.position.y = walking ? 0 : Math.sin(a.ph*2)*0.008;
       if (P.eyes) P.eyes.forEach((e, i) => e.rotation.y = Math.sin(a.ph + i)*0.4);
+      if (isHero(ch) && !a.dead && P.head){
+        let hy = 0, hx = 0;
+        if (a.lookT < 1){ a.lookT = Math.min(1, a.lookT + dt / 0.8); hy = Math.sin(a.lookT * Math.PI * 2) * 0.9; hx = Math.sin(a.lookT * Math.PI) * 0.25; }
+        if (a.restT < 1){ a.restT = Math.min(1, a.restT + dt / 0.75); const s = Math.sin(a.restT * Math.PI); oy -= s * 0.12; hx = s * 0.45; if (P.legL){ P.legL.rotation.x = -s * 1.1; P.legR.rotation.x = s * 0.3; } }
+        a.sleepK += ((V.heroSleep ? 1 : 0) - a.sleepK) * Math.min(1, dt * 4);
+        a.root.rotation.z = a.sleepK * 1.45;
+        if (a.sleepK > 0.01){ ox += Math.cos(a.face) * 0.35 * a.sleepK; oz -= Math.sin(a.face) * 0.35 * a.sleepK; hx = a.sleepK * 0.3; }
+        a.zT += dt; if (a.sleepK > 0.7 && a.zT > 1.1){ a.zT = 0; a.zz = a.zz === 'z' ? 'Z' : 'z'; floatText(ch.x, ch.y, a.zz, '#c8d8ff'); }
+        P.head.rotation.set(hx, hy, 0);
+      }
       // death
       if (a.dead){
         a.deadT += dt;
@@ -4145,9 +4219,10 @@ const Render = (() => {
       if (p.trail){ const c = p.trail; emit(x, y, z, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, 0.25, c.r, c.g, c.b, 0.16, 0); }
       if (k >= 1){ fxG.remove(p.obj); projs.splice(i, 1); if (p.trail) burst(p.x1, p.y1, p.trail.getHex(), 8, 0.7, p.h1); }
     }
-    for (let i = beams.length - 1; i >= 0; i--){ const b = beams[i]; b.life -= dt; b.obj.material.opacity = Math.max(0, b.life / b.max); if (b.life <= 0){ fxG.remove(b.obj); b.obj.geometry.dispose(); b.obj.material.dispose(); beams.splice(i, 1); } }
+    for (let i = beams.length - 1; i >= 0; i--){ const b = beams[i]; b.life -= dt; b.obj.material.opacity = Math.max(0, b.life / b.max); if (b.grow) b.obj.scale.setScalar(0.3 + (1 - b.life / b.max) * b.grow); if (b.life <= 0){ fxG.remove(b.obj); if (b.obj.geometry !== ringGeo) b.obj.geometry.dispose(); b.obj.material.dispose(); beams.splice(i, 1); } }
     updateParticles(dt);
     warnMesh.material.opacity = 0.5 + Math.sin(time*10)*0.2;
+    for (const m of trapMats.values()) if (m.userData.glow) m.emissiveIntensity = 0.45 + Math.sin(time*2.4)*0.2;
     if (barrier){ barrier.material.opacity = 0.22 + Math.sin(time*3)*0.08; barrier.rotation.y = time*0.5; }
     // camera
     cam.yaw = angLerp(cam.yaw, cam.yawT, Math.min(1, dt*8));
@@ -4255,6 +4330,13 @@ const Render = (() => {
     levelUp(ch){ for (let i = 0; i < 30; i++){ const a = i/30*6.28; emit(ch.x + Math.cos(a)*0.4, 0.1, ch.y + Math.sin(a)*0.4, Math.cos(a)*0.3, 1.6 + Math.random(), Math.sin(a)*0.3, 1.0, 1, 0.85, 0.35, 0.14, 0.2); } },
     charge(m, color){ const c = new THREE.Color(color); for (let i = 0; i < 20; i++){ const a = Math.random()*6.28, r = 0.8; emit(m.x + Math.cos(a)*r, 0.5 + Math.random()*0.4, m.y + Math.sin(a)*r, -Math.cos(a)*r*2, 0, -Math.sin(a)*r*2, 0.45, c.r, c.g, c.b, 0.16, 0); } },
     shake(a){ cam.shake = Math.max(cam.shake, a); },
+    search(ch, r){
+      const a = modelOf(ch); if (a) a.lookT = 0;
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xf2d27a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      ring.position.set(ch.x, cellHeight(L, ch.x, ch.y) + 0.05, ch.y); fxG.add(ring); beams.push({ obj: ring, life: 0.9, max: 0.9, grow: r + 0.6 });
+      for (let y = ch.y - r; y <= ch.y + r; y++) for (let x = ch.x - r; x <= ch.x + r; x++){ if (inb(L, x, y) && V.fov[y*L.w + x] && Math.random() < 0.6) emit(x + (Math.random()-0.5)*0.6, 0.06, y + (Math.random()-0.5)*0.6, 0, 0.5 + Math.random()*0.4, 0, 0.7, 1, 0.85, 0.45, 0.1, 0); }
+    },
+    rest(ch){ const a = modelOf(ch); if (a) a.restT = 0; for (let i = 0; i < 6; i++) emit(ch.x + (Math.random()-0.5)*0.3, 0.7, ch.y + (Math.random()-0.5)*0.3, 0, 0.35 + Math.random()*0.2, 0, 1.0, 0.75, 0.82, 1, 0.12, 0); },
     flash(){ const f = document.getElementById('fade'); f.style.background = '#fff'; f.style.transition = 'none'; f.style.opacity = '0.6'; requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = '0'; setTimeout(() => { f.style.background = '#000'; f.style.transition = ''; }, 520); }); }
   };
   function rotate(d){ cam.yawT += d; }
@@ -4264,12 +4346,52 @@ const Render = (() => {
   function heroScreenPos(){ const h = G.hero; const a = models.get(h.id); if (!a) return null; tmpV2.set(a.x, a.y + 0.4, a.z); return projectToScreen(tmpV2); }
   function cellScreenPos(x, y){ tmpV2.set(x, cellHeight(L, x, y) + 0.4, y); return projectToScreen(tmpV2); }
   function resetAll(){ for (const [, a] of models) disposeModel(a); models.clear(); for (const [, o] of heapObjs) itemG.remove(o); heapObjs.clear(); }
-  return { init, buildLevel, sync, frame, pick, setHover, FX: FXapi, rotate, snapYaw, zoom, yawIndex, cam, resize, heroScreenPos, cellScreenPos, resetAll, get renderer(){ return renderer; } };
+  return { init, buildLevel, sync, frame, pick, setHover, FX: FXapi, rotate, snapYaw, zoom, yawIndex, cam, resize, heroScreenPos, cellScreenPos, resetAll, trapGroups: () => trapMeshes.map(m => m.userData.trap), get renderer(){ return renderer; } };
 })();
 const FX = Render.FX;
 // ============================================================
 // UI: HUD, windows, input
 // ============================================================
+// ---------- key bindings (per device, separate from saves) ----------
+const Keys = (() => {
+  const STORE = 'pd3d_keys_v1';
+  const ACTIONS = [ // [id, label, default key codes]
+    ['dir0', 'Move up', ['ArrowUp','KeyW','Numpad8','KeyK']], ['dir2', 'Move right', ['ArrowRight','KeyD','Numpad6','KeyL']],
+    ['dir4', 'Move down', ['ArrowDown','KeyS','Numpad2','KeyJ']], ['dir6', 'Move left', ['ArrowLeft','KeyA','Numpad4','KeyH']],
+    ['dir7', 'Move up-left', ['Numpad7','KeyY']], ['dir1', 'Move up-right', ['Numpad9','KeyU']],
+    ['dir5', 'Move down-left', ['Numpad1','KeyB']], ['dir3', 'Move down-right', ['Numpad3','KeyN']],
+    ['search', 'Search nearby tiles', ['Space','Period','Numpad5']], ['examine', 'Examine a tile', ['KeyX']],
+    ['rest', 'Rest (tap) / sleep (hold)', ['KeyZ']], ['inv', 'Backpack', ['KeyI']],
+    ['q0', 'Quickslot 1', ['Digit1']], ['q1', 'Quickslot 2', ['Digit2']], ['q2', 'Quickslot 3', ['Digit3']], ['q3', 'Quickslot 4', ['Digit4']],
+    ['attack', 'Attack nearest enemy', ['KeyF']], ['power', 'Use power', ['KeyR']], ['pickup', 'Pick up / use stairs', ['KeyG','Comma']],
+    ['cycle', 'Next target', ['Tab']], ['fire', 'Fire at target', ['Enter','NumpadEnter']],
+    ['rotl', 'Rotate camera left', ['KeyQ']], ['rotr', 'Rotate camera right', ['KeyE']],
+    ['zin', 'Zoom in', ['Equal','NumpadAdd']], ['zout', 'Zoom out', ['Minus','NumpadSubtract']],
+    ['hero', 'Hero details', ['KeyC']], ['help', 'How to play', ['Slash','F1']],
+  ];
+  let map = null, rev = null;
+  function load(){
+    let saved = null; try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (e) {}
+    map = {}; for (const [id, , def] of ACTIONS) map[id] = Array.isArray(saved && saved[id]) ? saved[id].filter(c => typeof c === 'string') : def.slice();
+    rev = {}; for (const id in map) for (const c of map[id]) rev[c] = id;
+  }
+  function save(){ try { localStorage.setItem(STORE, JSON.stringify(map)); } catch (e) {} rev = {}; for (const id in map) for (const c of map[id]) rev[c] = id; }
+  const NAMES = { Space:'Space', Period:'.', Comma:',', Slash:'/', Backslash:'\\', Semicolon:';', Quote:"'", BracketLeft:'[', BracketRight:']', Equal:'=', Minus:'-', Backquote:'`',
+    ArrowUp:'↑', ArrowDown:'↓', ArrowLeft:'←', ArrowRight:'→', Enter:'Enter', NumpadEnter:'Num Enter', Tab:'Tab', Backspace:'Backspace', ShiftLeft:'L-Shift', ShiftRight:'R-Shift',
+    NumpadAdd:'Num +', NumpadSubtract:'Num −', NumpadMultiply:'Num *', NumpadDivide:'Num /', NumpadDecimal:'Num .', CapsLock:'Caps' };
+  function label(code){ return NAMES[code] || code.replace(/^Key|^Digit/, '').replace(/^Numpad/, 'Num '); }
+  load();
+  return {
+    ACTIONS,
+    action(code){ return rev[code] || null; },
+    codes(id){ return map[id] || []; },
+    label, first(id){ const c = map[id] && map[id][0]; return c ? label(c) : '—'; },
+    // binds code to id; returns the label of the action it was taken from, if any
+    bind(id, code){ const prev = rev[code]; if (prev === id) return null; if (prev) map[prev] = map[prev].filter(c => c !== code); map[id].push(code); save(); return prev ? ACTIONS.find(a => a[0] === prev)[1] : null; },
+    unbind(id, code){ map[id] = map[id].filter(c => c !== code); save(); },
+    reset(){ try { localStorage.removeItem(STORE); } catch (e) {} load(); },
+  };
+})();
 const UI = (() => {
   const $ = id => document.getElementById(id);
   let logDirty = true, modal = null, targeting = null, path = null, pathTimer = 0, resting = false, restCount = 0;
@@ -4308,8 +4430,9 @@ const UI = (() => {
       let q = '';
       if (it){ if (it.qty > 1) q = it.qty; else if (it.ch !== undefined && (it.k === 'wand' || it.k === 'weapon')) q = it.ch + '/' + it.chMax; else if (it.k === 'cloak') q = Math.floor(it.ch) + '/' + it.chMax; }
       b.querySelector('.q').textContent = q;
-      b.title = it ? itemName(it) + ' (' + (i+1) + ')' : 'Empty quickslot. Assign one from your backpack.';
+      b.title = it ? itemName(it) + ' (' + Keys.first('q' + i) + ')' : 'Empty quickslot. Assign one from your backpack.';
     });
+    $('b-wait').classList.toggle('armed', !!(targeting && targeting.kind === 'examine'));
     const ab = $('b-ab'); ab.hidden = !h.ab;
     if (h.ab){ ab.querySelector('.lbl').textContent = ABILITIES[h.ab].n; ab.querySelector('.q').textContent = (h.abCh || 0) >= 100 ? 'ready' : Math.floor(h.abCh || 0) + '%'; ab.classList.toggle('empty', (h.abCh || 0) < 100); }
     // enemies
@@ -4492,23 +4615,41 @@ const UI = (() => {
   function openHelp(){
     openWindow(`<h2>How to play</h2>
       <p>Explore 25 floors, defeat the five guardians, and claim the Amulet of Yendor on floor 26. Every action takes a turn; monsters act when you do.</p>
-      <h3>Controls</h3>
+      <h3>Controls <button class="btn" id="hkeys" style="margin-left:8px;padding:2px 10px">Edit</button></h3>
       <table class="keys"><tbody>
-      <tr><td><kbd>W A S D</kbd> / arrows / numpad</td><td>Move or attack (relative to the camera). Diagonals: <kbd>Y U B N</kbd> or numpad <kbd>7 9 1 3</kbd>.</td></tr>
+      ${Keys.ACTIONS.map(([id, lbl]) => `<tr><td>${Keys.codes(id).map(c => `<kbd>${esc(Keys.label(c))}</kbd>`).join(' ') || '—'}</td><td>${esc(lbl)}</td></tr>`).join('')}
       <tr><td>Click / tap a tile</td><td>Walk there. Click a monster to attack it or walk over to it.</td></tr>
-      <tr><td><kbd>Space</kbd> / <kbd>.</kbd></td><td>Wait one turn and search adjacent tiles for secrets.</td></tr>
-      <tr><td><kbd>Z</kbd></td><td>Rest until healed or something appears.</td></tr>
-      <tr><td><kbd>I</kbd></td><td>Open your backpack.</td></tr>
-      <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>Use a quickslot. Thrown and zapped items aim at the nearest enemy; press again or click to fire, <kbd>Tab</kbd> to cycle targets.</td></tr>
-      <tr><td><kbd>R</kbd></td><td>Use your power, once you have claimed one after the floor-15 guardian.</td></tr>
-      <tr><td><kbd>F</kbd></td><td>Attack or approach the nearest visible enemy.</td></tr>
-      <tr><td><kbd>Q</kbd> <kbd>E</kbd> / right-drag</td><td>Rotate the camera. Mouse wheel or pinch to zoom.</td></tr>
-      <tr><td>Right-click / long-press</td><td>Examine a tile.</td></tr>
+      <tr><td>Search button</td><td>Tap, then tap a tile to examine it. Tap it again to search. Right-click or long-press a tile also examines it.</td></tr>
+      <tr><td>Right-drag / pinch / wheel</td><td>Rotate and zoom the camera.</td></tr>
       <tr><td><kbd>Esc</kbd></td><td>Cancel, close windows, or open the menu.</td></tr>
       </tbody></table>
       <h3>Tips</h3>
       <p>Unknown potions and scrolls reveal themselves when used. Throw suspicious potions at enemies. Scrolls of Upgrade and Potions of Strength are guaranteed on every set of floors, so spend them on the gear you plan to keep. Watch for red tiles: they mark an attack that lands next turn. Search dead ends for hidden doors. Eat when you are Hungry, not before.</p>
-      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" id="hclose">Got it</button></div>`, p => p.querySelector('#hclose').addEventListener('click', closeWindow));
+      <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" id="hclose">Got it</button></div>`, p => { p.querySelector('#hclose').addEventListener('click', closeWindow); p.querySelector('#hkeys').addEventListener('click', openControls); });
+  }
+  function openControls(){
+    const draw = (p, note) => {
+      p.querySelector('#klist').innerHTML = Keys.ACTIONS.map(([id, lbl]) => `<div class="krow"><span>${esc(lbl)}</span><span>${Keys.codes(id).map(c => `<button class="kchip" data-a="${id}" data-c="${esc(c)}" title="Remove">${esc(Keys.label(c))} ×</button>`).join('')}<button class="kchip add" data-a="${id}" title="Add a key">+</button></span></div>`).join('');
+      p.querySelector('#knote').textContent = note || 'Tap + then press a key. Tap a key to remove it. Esc always cancels and opens the menu.';
+    };
+    openWindow(`<h2>Controls</h2><p id="knote" style="color:var(--dim)"></p><div id="klist"></div>
+      <div class="row" style="justify-content:space-between;margin-top:12px"><button class="btn danger" id="kreset">Reset to defaults</button><button class="btn primary" id="kdone">Done</button></div>`, p => {
+        draw(p);
+        p.querySelector('#kdone').addEventListener('click', closeWindow);
+        p.querySelector('#kreset').addEventListener('click', () => { Keys.reset(); keyLabels(); draw(p, 'Controls reset to defaults.'); });
+        p.querySelector('#klist').addEventListener('click', (e) => {
+          const b = e.target.closest('.kchip'); if (!b) return;
+          const id = b.dataset.a, lbl = Keys.ACTIONS.find(a => a[0] === id)[1];
+          if (!b.classList.contains('add')){ Keys.unbind(id, b.dataset.c); keyLabels(); draw(p); return; }
+          b.textContent = 'press a key…'; b.classList.add('wait');
+          capture = (code) => {
+            capture = null;
+            if (code === 'Escape'){ draw(p, 'Cancelled.'); return; }
+            const from = Keys.bind(id, code); keyLabels();
+            draw(p, from ? `${Keys.label(code)} now does "${lbl}" (removed from "${from}").` : `${Keys.label(code)} now does "${lbl}".`);
+          };
+        });
+      }, () => { capture = null; }, true);
   }
   function openHeroInfo(){
     const h = G.hero; const w = h.eq.weapon, a = h.eq.armor;
@@ -4542,12 +4683,14 @@ const UI = (() => {
       <button class="btn" id="mhelp">How to play</button>
       <button class="btn" id="minfo">Hero details</button>
       <button class="btn" id="msnd">Sound: ${Sound.muted ? 'off' : 'on'}</button>
+      <button class="btn" id="mkeys">Controls</button>
       <button class="btn" id="mquit">Save and return to title</button>
       <button class="btn danger" id="mab">Abandon this run</button>
       </div>`, p => {
         p.querySelector('#mres').addEventListener('click', closeWindow);
         p.querySelector('#mhelp').addEventListener('click', openHelp);
         p.querySelector('#minfo').addEventListener('click', openHeroInfo);
+        p.querySelector('#mkeys').addEventListener('click', openControls);
         p.querySelector('#msnd').addEventListener('click', (e) => { Sound.toggle(); e.target.textContent = 'Sound: ' + (Sound.muted ? 'off' : 'on'); });
         p.querySelector('#mquit').addEventListener('click', () => { saveGame(); closeWindow(); showTitle(); });
         p.querySelector('#mab').addEventListener('click', (e) => {
@@ -4585,10 +4728,12 @@ const UI = (() => {
       html += `<h2>${esc(d.name)}</h2><p>${esc(d.desc)}</p><p style="color:var(--dim)">${m.ht < 9000 ? `Health ${m.hp}/${m.ht}. ` : ''}${st}</p>`;
     }
     const heap = L.heaps[c];
-    if (heap && heap.length){ html += `<h3>Items here</h3><p>${heap.map(i => esc(itemName(i, true)) + (i.price ? ` (${i.price} gold)` : '')).join(', ')}</p>`; }
+    if (x === G.hero.x && y === G.hero.y) html += `<h2>You</h2><p style="color:var(--dim)">Health ${G.hero.hp}/${G.hero.ht}. ${esc(CLASSES[G.hero.cls].name)}, level ${G.hero.lvl}.</p>`;
+    const icon = cv => `<img class="xicon" alt="" src="${cv.toDataURL()}">`;
+    if (heap && heap.length){ html += `<h3>Items here</h3>` + heap.map(i => { const inf = itemInfo(i); return `<div class="xrow">${icon(iconCanvas(itemIconKey(i)))}<p><b>${esc(itemName(i, true))}</b>${i.price ? ` (${i.price} gold)` : ''}<br>${esc(inf.desc)}</p></div>`; }).join(''); }
     const tr = L.traps[c];
+    if (tr && !tr.hidden) html += `<h3>${esc(TRAPS[tr.t].name)}${tr.active ? '' : ' (disarmed)'}</h3><div class="xrow">${icon(trapPlate(tr.t))}<p>${esc(TRAPS[tr.t].desc)}${tr.active ? ' Walking around it is safe; flying or levitating over it is too.' : ' It has already been triggered and is harmless now.'}</p></div>`;
     html += `<h3>${esc(TILE_NAMES[t] || 'Floor')}</h3>`;
-    if (tr && !tr.hidden) html += `<p>${esc(TRAPS[tr.t].name)}${tr.active ? '' : ' (disarmed)'}: ${esc(TRAPS[tr.t].desc)}</p>`;
     if (TILE_DESC[t]) html += `<p>${esc(TILE_DESC[t])}</p>`;
     if (L.fire[c] > 0) html += `<p>It is on fire.</p>`; if (L.toxic[c] > 0) html += `<p>Toxic gas hangs here.</p>`; if (L.para[c] > 0) html += `<p>A paralytic haze lingers here.</p>`; if (L.web[c]) html += `<p>A sticky web covers the ground.</p>`;
     openWindow(html + `<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn primary" id="xclose">Close</button></div>`, p => p.querySelector('#xclose').addEventListener('click', closeWindow), null, true);
@@ -4612,6 +4757,7 @@ const UI = (() => {
   function fireAt(x, y){
     const t = targeting; if (!t) return;
     cancelTargeting();
+    if (t.kind === 'examine'){ examine(x, y); return; }
     const h = G.hero;
     if (x === h.x && y === h.y){ if (t.kind === 'throw'){ log('You can\'t throw at yourself.', 'warn'); } return; }
     if (t.kind === 'blink'){ act(() => useAbility(x, y)); return; }
@@ -4808,6 +4954,7 @@ const UI = (() => {
     act(() => heroMove(dx, dy));
   }
   function cellClick(x, y){
+    if (targeting && targeting.kind === 'examine'){ fireAt(x, y); return; }
     if (!G || G.over || heroBusy()) return;
     if (targeting){ fireAt(x, y); return; }
     stopAuto();
@@ -4837,10 +4984,11 @@ const UI = (() => {
     if (!G || G.over || heroBusy()) return;
     if (visibleFoes().some(m => m.state === 'hunting')){ log('You can\'t rest with enemies nearby.', 'warn'); return; }
     resting = true; restCount = 0; prevHP = G.hero.hp;
-    log('You rest for a while...', 'info');
+    log('You lie down and sleep...', 'info');
   }
   function tick(dt){
     renderLog();
+    V.heroSleep = resting && !!G && !G.over;
     if (!G || G.over) return;
     if (!$('modal').hidden || V.busy) return;
     if (path){ pathTimer -= dt; if (pathTimer <= 0){ pathTimer = 0.115; stepPath(); } }
@@ -4858,40 +5006,57 @@ const UI = (() => {
   }
 
   // ---------- input binding ----------
-  const KEYDIR = { ArrowUp:0, KeyW:0, Numpad8:0, KeyK:0, ArrowRight:2, KeyD:2, Numpad6:2, KeyL:2, ArrowDown:4, KeyS:4, Numpad2:4, KeyJ:4, ArrowLeft:6, KeyA:6, Numpad4:6, KeyH:6,
-    Numpad9:1, KeyU:1, Numpad3:3, KeyN:3, Numpad1:5, KeyB:5, Numpad7:7, KeyY:7 };
+  const DIRKEY = { dir0:0, dir1:1, dir2:2, dir3:3, dir4:4, dir5:5, dir6:6, dir7:7 };
+  let restHold = null, capture = null;
+  // tap = rest one turn, hold = sleep until healed
+  function restPress(){ if (restHold || !G || G.over) return; restHold = setTimeout(() => { restHold = 'slept'; rest(); }, 450); }
+  function restRelease(){ if (!restHold) return; if (restHold !== 'slept'){ clearTimeout(restHold); restOnce(); } restHold = null; }
+  function restOnce(){ if (!G || G.over || heroBusy()) return; stopAuto(); if (targeting) cancelTargeting(); act(heroRest); }
+  function search(){ if (!G || G.over || heroBusy()) return; stopAuto(); if (targeting) cancelTargeting(); act(heroSearch); }
+  function examineMode(){
+    if (!G || G.over) return;
+    if (targeting && targeting.kind === 'examine'){ search(); return; } // second press searches, as in the original
+    if (targeting) cancelTargeting();
+    targeting = { kind: 'examine', foes: [], idx: 0 };
+    $('targetbar').hidden = false; $('targetbar').textContent = `Examine: tap any tile you have seen · tap Search again (or ${Keys.first('search')}) to search · Esc to cancel`;
+    update();
+  }
   function bind(){
     const view = $('view');
     window.addEventListener('keydown', (e) => {
       Sound.unlock();
+      if (capture){ e.preventDefault(); e.stopPropagation(); capture(e.code); return; }
       const modalOpen = !$('modal').hidden;
       if (!$('title').hidden){ if (modalOpen && e.code === 'Escape') closeWindow(); return; }
       if (e.code === 'Escape'){ e.preventDefault(); if (modalOpen) closeWindow(); else if (targeting) cancelTargeting(); else if (path || resting) stopAuto(); else if (G && !G.over) openMenu(); return; }
-      if (modalOpen){ if (e.code === 'KeyI' && !chooseCB) closeWindow(); return; }
+      const act_ = Keys.action(e.code);
+      if (modalOpen){ if (act_ === 'inv' && !chooseCB) closeWindow(); return; }
       if (!G || G.over) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (KEYDIR[e.code] !== undefined){ e.preventDefault(); if (!e.repeat){ heldDir = KEYDIR[e.code]; lastAct = 0; moveDir(KEYDIR[e.code]); } return; }
-      switch (e.code){
-        case 'Space': case 'Period': case 'Numpad5': e.preventDefault(); stopAuto(); if (targeting) cancelTargeting(); act(heroWait); break;
-        case 'KeyZ': rest(); break;
-        case 'KeyI': openInventory(); break;
-        case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': useQuick(Number(e.code.slice(5)) - 1); break;
-        case 'Tab': e.preventDefault(); if (targeting && targeting.foes.length){ targeting.idx = (targeting.idx + 1) % targeting.foes.length; highlightTarget(); } break;
-        case 'Enter': case 'NumpadEnter': if (targeting){ const f = targeting.foes[targeting.idx]; if (f) fireAt(f.x, f.y); } break;
-        case 'KeyQ': Render.rotate(Math.PI/2); break;
-        case 'KeyE': Render.rotate(-Math.PI/2); break;
-        case 'Equal': case 'NumpadAdd': Render.zoom(0.85); break;
-        case 'Minus': case 'NumpadSubtract': Render.zoom(1.18); break;
-        case 'KeyF': attackNearest(); break;
-        case 'KeyR': usePower(); break;
-        case 'KeyC': openHeroInfo(); break;
-        case 'KeyG': case 'Comma': { const c = G.hero.y*L.w + G.hero.x; if (L.heaps[c]) cellClick(G.hero.x, G.hero.y); break; }
-        case 'Slash': case 'F1': e.preventDefault(); openHelp(); break;
+      if (act_ && DIRKEY[act_] !== undefined){ e.preventDefault(); if (!e.repeat){ heldDir = DIRKEY[act_]; lastAct = 0; moveDir(heldDir); } return; }
+      if (act_) e.preventDefault();
+      switch (act_){
+        case 'search': search(); break;
+        case 'examine': examineMode(); break;
+        case 'rest': if (!e.repeat) restPress(); break;
+        case 'inv': openInventory(); break;
+        case 'q0': case 'q1': case 'q2': case 'q3': useQuick(Number(act_[1])); break;
+        case 'cycle': if (targeting && targeting.foes.length){ targeting.idx = (targeting.idx + 1) % targeting.foes.length; highlightTarget(); } break;
+        case 'fire': if (targeting){ const f = targeting.foes[targeting.idx]; if (f) fireAt(f.x, f.y); } break;
+        case 'rotl': Render.rotate(Math.PI/2); break;
+        case 'rotr': Render.rotate(-Math.PI/2); break;
+        case 'zin': Render.zoom(0.85); break;
+        case 'zout': Render.zoom(1.18); break;
+        case 'attack': attackNearest(); break;
+        case 'power': usePower(); break;
+        case 'hero': openHeroInfo(); break;
+        case 'pickup': { const c = G.hero.y*L.w + G.hero.x; if (L.heaps[c] || L.tiles[c] === T.EXIT || L.tiles[c] === T.ENTRANCE) cellClick(G.hero.x, G.hero.y); break; }
+        case 'help': openHelp(); break;
       }
-      if (e.key === '>' || e.key === '<'){ const c = G.hero.y*L.w + G.hero.x; if (L.tiles[c] === T.EXIT || L.tiles[c] === T.ENTRANCE) cellClick(G.hero.x, G.hero.y); }
+      if (!act_ && (e.key === '>' || e.key === '<')){ const c = G.hero.y*L.w + G.hero.x; if (L.tiles[c] === T.EXIT || L.tiles[c] === T.ENTRANCE) cellClick(G.hero.x, G.hero.y); }
     });
-    window.addEventListener('keyup', (e) => { if (KEYDIR[e.code] === heldDir) heldDir = null; });
-    window.addEventListener('blur', () => { heldDir = null; });
+    window.addEventListener('keyup', (e) => { const a_ = Keys.action(e.code); if (a_ && DIRKEY[a_] === heldDir) heldDir = null; if (a_ === 'rest') restRelease(); });
+    window.addEventListener('blur', () => { heldDir = null; if (restHold && restHold !== 'slept') clearTimeout(restHold); restHold = null; });
     view.addEventListener('contextmenu', e => e.preventDefault());
     view.addEventListener('pointerdown', (e) => {
       Sound.unlock();
@@ -4933,8 +5098,11 @@ const UI = (() => {
     view.addEventListener('pointerup', up);
     view.addEventListener('pointercancel', (e) => { pointer.touches.delete(e.pointerId); pointer.down = false; clearTimeout(pointer.longT); });
     view.addEventListener('wheel', (e) => { e.preventDefault(); Render.zoom(e.deltaY > 0 ? 1.1 : 0.9); }, { passive: false });
-    $('b-wait').addEventListener('click', () => { stopAuto(); if (targeting) cancelTargeting(); act(heroWait); });
-    $('b-rest').addEventListener('click', rest);
+    $('b-wait').addEventListener('click', examineMode);
+    $('b-rest').addEventListener('pointerdown', (e) => { if (e.button === 0) restPress(); });
+    $('b-rest').addEventListener('pointerup', restRelease);
+    $('b-rest').addEventListener('pointerleave', () => { if (restHold && restHold !== 'slept'){ clearTimeout(restHold); restHold = null; } });
+    $('b-rest').addEventListener('contextmenu', e => e.preventDefault());
     $('b-inv').addEventListener('click', openInventory);
     $('b-ab').addEventListener('click', usePower);
     document.querySelectorAll('.qs').forEach(b => b.addEventListener('click', () => useQuick(Number(b.dataset.q))));
@@ -4947,9 +5115,17 @@ const UI = (() => {
     $('enemyind').addEventListener('click', (e) => { const b = e.target.closest('.foe'); if (!b) return; const m = L.mobs.find(o => o.id === Number(b.dataset.id)); if (m){ if (!tryAttack(m)) walkTo(m.x, m.y, m); } });
     $('modal').addEventListener('pointerdown', (e) => { if (e.target.id === 'modal') closeWindow(); });
     $('hud').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
+    keyLabels();
     drawIconTo($('b-wait').querySelector('canvas'), 'ui:search');
     drawIconTo($('b-rest').querySelector('canvas'), 'ui:rest');
     drawIconTo($('b-inv').querySelector('canvas'), 'ui:bag');
+  }
+  function keyLabels(){
+    const set = (id, act, title) => { const b = $(id); b.querySelector('.k').textContent = Keys.first(act); if (title) b.title = title; };
+    set('b-wait', 'search', `Tap: examine a tile, tap again to search (${Keys.first('search')}). Long-press or right-click a tile also examines.`);
+    set('b-rest', 'rest', `Tap ${Keys.first('rest')}: rest one turn. Hold: sleep until healed.`);
+    set('b-inv', 'inv', `Backpack (${Keys.first('inv')})`); set('b-ab', 'power', `Use your power (${Keys.first('power')})`);
+    document.querySelectorAll('.qs').forEach(b => { b.querySelector('.k').textContent = Keys.first('q' + b.dataset.q); });
   }
   function portrait(){ if (G) drawIconTo($('portraitc'), 'hero:' + G.hero.cls); }
   return { update, logChanged, toast, fade, openWindow, closeWindow, openInventory, chooseItem, choosePath, chooseAbility, usePower, interact, openBuy, openSell, openHelp, openMenu, endScreen, examine, tick, bind, cellClick, useQuick, portrait, stopAuto, get targeting(){ return targeting; }, walkTo };
@@ -5181,5 +5357,5 @@ function boot(data){
   document.addEventListener('visibilitychange', () => { if (document.hidden && G && !G.over && !G.demo) saveGame(); });
   window.addEventListener('pagehide', () => { if (G && !G.over && !G.demo) saveGame(); });
 }
-window.__pd = { get G(){ return G; }, get L(){ return L; }, V, act, heroMove, heroWait, newGame, UI, Render, processTurns, findItem, zapWand, throwItem, readScroll, drinkPotion, changeLevel, serialize, loadSave, startGameFrom };
+window.__pd = { get G(){ return G; }, get L(){ return L; }, V, act, heroMove, heroWait, heroSearch, heroRest, Keys, newGame, UI, Render, processTurns, findItem, zapWand, throwItem, readScroll, drinkPotion, changeLevel, serialize, loadSave, startGameFrom };
 boot({});

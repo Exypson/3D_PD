@@ -422,6 +422,37 @@ const WALK = process.argv[4] === 'walk'; // walk-only: monsters are cleared, the
       check('death ends the run', pd.G.over && modal() && /died/i.test(document.getElementById('modal').textContent));
       check('death is recorded in best runs', JSON.parse(localStorage.getItem(rankKey()) || '[]').length > 0);
     });
+    await section('controls', async () => {
+      if (modal()) pd.UI.closeWindow();
+      await fresh('warrior');
+      const key = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+      const L = pd.L, h = pd.G.hero, types = Object.keys(TRAPS), spots = [];
+      for (let c = 0; c < L.w*L.h && spots.length < types.length; c++) if (TP.pass[L.tiles[c]] && !L.traps[c] && !charAt(cx_(c), cy_(c)) && ![T.EXIT, T.ENTRANCE, T.DOOR].includes(L.tiles[c])) spots.push([cx_(c), cy_(c)]);
+      types.forEach((t, i) => { const [x, y] = spots[i]; L.traps[y*L.w + x] = { t, hidden: false, active: i > 0 }; L.visited[y*L.w + x] = 1; });
+      pd.V.trapDirty = true; pd.Render.sync();
+      const groups = pd.Render.trapGroups();
+      check('every trap type gets its own glyph mesh', types.every((t, i) => groups.includes(i ? t : t + '_off')), groups);
+      document.getElementById('b-wait').click();
+      check('Search button enters examine mode', pd.UI.targeting && pd.UI.targeting.kind === 'examine');
+      pd.UI.cellClick(spots[1][0], spots[1][1]);
+      check('examining a trap names it', modal() && document.getElementById('modal').textContent.includes(TRAPS[types[1]].name));
+      pd.UI.closeWindow();
+      for (const k in L.traps) L.traps[k].active = false;
+      clearMobs(); await ready();
+      let t0 = h.time; document.getElementById('b-wait').click(); document.getElementById('b-wait').click(); await ready();
+      check('Search button twice searches', h.time > t0 && pd.V.log.some(l => /search the area|notice something/.test(l.msg)));
+      t0 = h.time; key('keydown', 'KeyZ'); key('keyup', 'KeyZ'); await ready();
+      check('tapping rest passes one turn without sleeping', h.time - t0 > 0.99 && h.time - t0 < 1.01 && !pd.V.heroSleep, h.time - t0);
+      h.hp = 1; key('keydown', 'KeyZ'); await wait(600);
+      check('holding rest falls asleep', pd.V.heroSleep);
+      key('keyup', 'KeyZ'); pd.UI.stopAuto(); god();
+      const from = pd.Keys.bind('search', 'KeyI');
+      check('rebinding a taken key moves it', from === 'Backpack' && pd.Keys.action('KeyI') === 'search');
+      t0 = h.time; key('keydown', 'KeyI'); await ready();
+      check('a rebound key performs its new action', h.time > t0 && !modal());
+      pd.Keys.reset();
+      check('reset restores default keys', pd.Keys.action('KeyI') === 'inv' && pd.Keys.action('Space') === 'search');
+    });
     if (TO >= 26) await section('victory', async () => {
       if (modal()) pd.UI.closeWindow();
       await fresh('warrior'); await goTo(26);
