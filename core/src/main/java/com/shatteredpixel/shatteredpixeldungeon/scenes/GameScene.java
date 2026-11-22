@@ -165,8 +165,11 @@ public class GameScene extends PixelScene {
 	public interface WorldView {
 		void render();
 		int cellAt( float screenX, float screenY ); // -1 when the point isn't over the map
+		// writes a column-major 4x4 matrix mapping 2D world pixels onto the 3D view, used for effects drawn in 2D
+		void worldMatrix( float[] out );
 	}
 	public static WorldView worldView = null;
+	private final float[] savedWorldMatrix = new float[16];
 
 	@Override
 	public synchronized void draw() {
@@ -175,9 +178,27 @@ public class GameScene extends PixelScene {
 			return;
 		}
 		worldView.render();
+
+		// SPD's own 2D world effects (damage numbers, health bars, emotes, particles, gases, spells, targeting),
+		// drawn through a matrix that projects them onto the 3D floor. Terrain, sprites, walls and fog are replaced by the 3D view.
+		Camera main = Camera.main;
+		System.arraycopy( main.matrix, 0, savedWorldMatrix, 0, 16 );
+		worldView.worldMatrix( main.matrix );
+		NoosaScript.get().resetCamera();
 		for (int i = 0; i < length; i++) {
 			Gizmo g = members.get( i );
-			if (g != null && g.exists && g.isVisible() && g.camera() != Camera.main) {
+			if (g != null && g.exists && g.isVisible() && g.camera() == main
+					&& g != terrain && g != heaps && g != mobs && g != raisedTerrain && g != walls
+					&& g != customWalls && g != wallBlocking && g != fog) {
+				g.draw();
+			}
+		}
+		System.arraycopy( savedWorldMatrix, 0, main.matrix, 0, 16 );
+		NoosaScript.get().resetCamera();
+
+		for (int i = 0; i < length; i++) {
+			Gizmo g = members.get( i );
+			if (g != null && g.exists && g.isVisible() && g.camera() != main) {
 				g.draw();
 			}
 		}

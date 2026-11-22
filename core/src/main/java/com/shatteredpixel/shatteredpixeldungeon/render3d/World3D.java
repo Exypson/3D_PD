@@ -24,6 +24,7 @@ import com.badlogic.gdx.graphics.Mesh;
 import com.badlogic.gdx.graphics.PerspectiveCamera;
 import com.badlogic.gdx.graphics.VertexAttribute;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.collision.Ray;
 import com.badlogic.gdx.utils.FloatArray;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
@@ -140,6 +141,23 @@ public class World3D implements GameScene.WorldView {
 		int x = Math.round(r.origin.x + r.direction.x * t), z = Math.round(r.origin.z + r.direction.z * t);
 		if (x < 0 || z < 0 || x >= lv.width() || z >= lv.height()) return -1;
 		return z * lv.width() + x;
+	}
+
+	private final Matrix4 floorMap = new Matrix4(), projected = new Matrix4();
+
+	@Override
+	public void worldMatrix(float[] out) {
+		// 2D world pixel (px, py) -> 3D point (px/16 - 0.5, lift, py/16 - 0.5): the same cell centres the terrain uses
+		float[] v = floorMap.val;
+		java.util.Arrays.fill(v, 0f);
+		v[Matrix4.M00] = 1f / 16f;
+		v[Matrix4.M21] = 1f / 16f;
+		v[Matrix4.M03] = -0.5f;
+		v[Matrix4.M13] = 0.02f; // just above the floor so effects aren't hidden in it
+		v[Matrix4.M23] = -0.5f;
+		v[Matrix4.M33] = 1f;
+		projected.set(cam.combined).mul(floorMap);
+		System.arraycopy(projected.val, 0, out, 0, 16);
 	}
 
 	// ---------- camera: follows SPD's own main camera, so its follow, drag-to-pan and pinch zoom all carry over ----------

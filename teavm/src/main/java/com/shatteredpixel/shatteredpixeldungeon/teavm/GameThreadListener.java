@@ -12,9 +12,11 @@ final class GameThreadListener implements ApplicationListener {
 	private final ApplicationListener game;
 	private final ArrayDeque<Runnable> queue = new ArrayDeque<>();
 	private boolean renderQueued = false;
+	static GameThreadListener instance;
 
 	GameThreadListener(ApplicationListener game) {
 		this.game = game;
+		instance = this;
 		Thread t = new Thread(this::loop, "SHPD Render Thread");
 		t.start();
 	}
@@ -32,7 +34,7 @@ final class GameThreadListener implements ApplicationListener {
 		}
 	}
 
-	private void post(Runnable r) {
+	void post(Runnable r) {
 		synchronized (queue) { queue.add(r); queue.notify(); }
 	}
 

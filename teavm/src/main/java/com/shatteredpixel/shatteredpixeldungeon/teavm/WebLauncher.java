@@ -42,6 +42,7 @@ public class WebLauncher {
 		// settings are needed before Gdx.app exists, so build them the way the backend would
 		SPDSettings.set(new WebPreferences(Storage.getLocalStorage(), config.storagePrefix + ":settings", false));
 
+		if (Window.current().getLocation().getSearch().contains("test")) TestHooks.install();
 		new WebApplication(new GameThreadListener(new ShatteredPixelDungeon(new WebPlatformSupport())), config);
 	}
 }
