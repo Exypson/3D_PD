@@ -1,3 +1,11 @@
+pluginManagement {
+    repositories {
+        mavenCentral()
+        gradlePluginPortal()
+        google()
+    }
+}
+
 //core game code modules
 include ':SPD-classes'
 include ':core'
@@ -6,6 +14,7 @@ include ':core'
 include ':android'
 include ':ios'
 include ':desktop'
+include ':teavm'
 
 //service modules
 include ':services'

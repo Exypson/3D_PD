@@ -23,6 +23,7 @@ package com.watabou.glwrap;
 
 import com.badlogic.gdx.Gdx;
 
+import java.nio.Buffer;
 import java.nio.FloatBuffer;
 
 public class Attribute {
@@ -45,8 +46,19 @@ public class Attribute {
 		Gdx.gl.glDisableVertexAttribArray( location );
 	}
 	
+	// WebGL has no client-side vertex arrays, so data from memory is streamed through one shared buffer object
+	// shortcut: the buffer handle is not recreated after a GL context loss; reset streamVBO when context restore is handled
+	private static int streamVBO = -1;
+
 	public void vertexPointer( int size, int stride, FloatBuffer ptr ) {
-		Gdx.gl.glVertexAttribPointer( location, size, Gdx.gl.GL_FLOAT, false, stride * 4, ptr );
+		if (streamVBO == -1) streamVBO = Gdx.gl.glGenBuffer();
+		int pos = ((Buffer)ptr).position();
+		Gdx.gl.glBindBuffer( Gdx.gl.GL_ARRAY_BUFFER, streamVBO );
+		((Buffer)ptr).position( 0 );
+		Gdx.gl.glBufferData( Gdx.gl.GL_ARRAY_BUFFER, ptr.limit() * 4, ptr, Gdx.gl.GL_STREAM_DRAW );
+		((Buffer)ptr).position( pos );
+		Gdx.gl.glVertexAttribPointer( location, size, Gdx.gl.GL_FLOAT, false, stride * 4, pos * 4 );
+		Gdx.gl.glBindBuffer( Gdx.gl.GL_ARRAY_BUFFER, 0 );
 	}
 
 	public void vertexBuffer( int size, int stride, int offset) {

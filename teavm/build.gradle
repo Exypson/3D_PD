@@ -1,0 +1,35 @@
+// Browser build of the unmodified game code, via gdx-teavm (Java -> JavaScript).
+plugins {
+    id 'java'
+    id 'com.github.xpenatan.gdx-teavm' version '1.6.2'
+}
+
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+java.sourceCompatibility = java.targetCompatibility = JavaVersion.VERSION_17 // the TeaVM backend needs 17; game modules stay on 11
+
+dependencies {
+    implementation project(':core')
+    implementation project(':services:updates:debugUpdates')
+    implementation project(':services:news:debugNews')
+    implementation "com.badlogicgames.gdx:gdx-freetype:$gdxVersion"
+    implementation "com.github.xpenatan.gdx-teavm:gdx-freetype-web:1.6.2"
+    implementation "com.github.xpenatan.gdx-teavm:gdx-controllers-web:1.6.2"
+}
+
+gdxTeaVM {
+    assets(new File(project(':core').projectDir, 'src/main/assets'))
+    assets(new File(project(':desktop').projectDir, 'src/main/assets/fonts').parentFile) // droid_sans.ttf fallback font lives with desktop
+    // saves restore objects by class name, so every game class must stay findable by name
+    // shortcut: no reflection rules yet. The catch-all pattern below runs TeaVM out of memory (8 GB+), so saving/loading
+    // (classes restored by name) is untested. Next step: a targeted list of the classes saves actually store.
+    // reflection('com.shatteredpixel.shatteredpixeldungeon.**', 'com.watabou.**')
+    webDefaults {
+        mainClass = 'com.shatteredpixel.shatteredpixeldungeon.teavm.WebLauncher'
+        htmlTitle = '3D PD'
+        obfuscated = false  // readable stack traces while porting
+    }
+    js {
+        outOfProcess = true  // SPD is big; TeaVM needs more heap than the Gradle daemon has
+        processMemory = 8192
+    }
+}

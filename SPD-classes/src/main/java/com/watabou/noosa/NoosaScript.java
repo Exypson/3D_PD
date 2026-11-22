@@ -73,6 +73,8 @@ public class NoosaScript extends Script {
 		
 	}
 
+	private static int streamIBO = -1;
+
 	public void drawElements( FloatBuffer vertices, ShortBuffer indices, int size ) {
 
 		((Buffer)vertices).position( 0 );
@@ -81,8 +83,12 @@ public class NoosaScript extends Script {
 		((Buffer)vertices).position( 2 );
 		aUV.vertexPointer( 2, 4, vertices );
 
-		Quad.releaseIndices();
-		Gdx.gl20.glDrawElements( Gdx.gl20.GL_TRIANGLES, size, Gdx.gl20.GL_UNSIGNED_SHORT, indices );
+		// WebGL needs indices in a buffer object too (same context-loss shortcut as Attribute.streamVBO)
+		if (streamIBO == -1) streamIBO = Gdx.gl20.glGenBuffer();
+		Gdx.gl20.glBindBuffer( Gdx.gl20.GL_ELEMENT_ARRAY_BUFFER, streamIBO );
+		((Buffer)indices).position( 0 );
+		Gdx.gl20.glBufferData( Gdx.gl20.GL_ELEMENT_ARRAY_BUFFER, indices.limit() * 2, indices, Gdx.gl20.GL_STREAM_DRAW );
+		Gdx.gl20.glDrawElements( Gdx.gl20.GL_TRIANGLES, size, Gdx.gl20.GL_UNSIGNED_SHORT, 0 );
 		Quad.bindIndices();
 	}
 
