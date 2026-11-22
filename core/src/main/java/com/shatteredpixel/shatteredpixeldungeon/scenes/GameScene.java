@@ -817,7 +817,7 @@ public class GameScene extends PixelScene {
 	public static void endActorThread(){
 		if (actorThread != null && actorThread.isAlive()){
 			Actor.keepActorThreadAlive = false;
-			actorThread.interrupt();
+			Actor.interruptActorThread(actorThread);
 		}
 	}
 
@@ -826,7 +826,7 @@ public class GameScene extends PixelScene {
 			return true;
 		}
 		synchronized (actorThread) {
-			if (interrupt) actorThread.interrupt();
+			if (interrupt) Actor.interruptActorThread(actorThread);
 			try {
 				actorThread.wait(msToWait);
 			} catch (InterruptedException e) {

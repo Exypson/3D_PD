@@ -247,6 +247,30 @@ public abstract class Actor implements Bundlable {
 	
 	public static boolean keepActorThreadAlive = true;
 	
+	// The web build turns this off: TeaVM resumes an interrupted wait() without giving the lock back, which kills the
+	// actor thread. There, a stop request plus a normal wake-up replaces Thread.interrupt(); process() treats both the same.
+	public static boolean useThreadInterrupt = true;
+	private static volatile boolean stopRequested = false;
+
+	public static void interruptActorThread( Thread t ){
+		if (useThreadInterrupt){
+			t.interrupt();
+			return;
+		}
+		stopRequested = true;
+		Actor acting = current;
+		if (acting instanceof Char && ((Char) acting).sprite != null){
+			synchronized (((Char) acting).sprite){ ((Char) acting).sprite.notifyAll(); }
+		}
+		synchronized (t){ t.notifyAll(); }
+	}
+
+	private static boolean takeStopRequest(){
+		boolean r = stopRequested;
+		stopRequested = false;
+		return r;
+	}
+
 	public static void process() {
 		
 		boolean doNext;
@@ -291,7 +315,7 @@ public abstract class Actor implements Bundlable {
 					}
 				}
 				
-				interrupted = interrupted || Thread.interrupted();
+				interrupted = interrupted || Thread.interrupted() || takeStopRequest();
 				
 				if (interrupted){
 					doNext = false;
@@ -310,7 +334,7 @@ public abstract class Actor implements Bundlable {
 			if (!doNext){
 				synchronized (Thread.currentThread()) {
 					
-					interrupted = interrupted || Thread.interrupted();
+					interrupted = interrupted || Thread.interrupted() || takeStopRequest();
 					
 					if (interrupted){
 						current = null;

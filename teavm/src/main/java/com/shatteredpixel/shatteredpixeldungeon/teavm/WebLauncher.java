@@ -5,8 +5,10 @@ import com.github.xpenatan.gdx.teavm.backends.web.WebApplication;
 import com.github.xpenatan.gdx.teavm.backends.web.WebApplicationConfiguration;
 import com.github.xpenatan.gdx.teavm.backends.web.WebPreferences;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.watabou.noosa.Game;
+import com.watabou.noosa.RenderedText;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Reflection;
 import com.watabou.utils.FileUtils;
@@ -27,12 +29,14 @@ public class WebLauncher {
 		config.preloadListener = loader -> loader.loadScript("freetype.js");
 
 		Reflection.factory = new GeneratedFactory(); // TeaVM can't construct classes by name; saves need it
+		RenderedText.actorThreadCheck = false; // false alarm under TeaVM's simulated threads, see RenderedText
+		Actor.useThreadInterrupt = false; // TeaVM breaks locks on interrupted waits, see Actor.interruptActorThread
 		Bundle.compressByDefault = false; // TeaVM's gzip writer is broken; saves are stored uncompressed in IndexedDB
 		// saves go to libGDX "local" files, which this backend keeps in browser storage
 		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");
 		// settings are needed before Gdx.app exists, so build them the way the backend would
 		SPDSettings.set(new WebPreferences(Storage.getLocalStorage(), config.storagePrefix + ":settings", false));
 
-		new WebApplication(new ShatteredPixelDungeon(new WebPlatformSupport()), config);
+		new WebApplication(new GameThreadListener(new ShatteredPixelDungeon(new WebPlatformSupport())), config);
 	}
 }

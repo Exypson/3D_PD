@@ -77,9 +77,13 @@ public class RenderedText extends Image {
 
 	private static final ArrayList<Character> alreadyReported = new ArrayList<>();
 	
+	// the web build turns this off: TeaVM reports the wrong current thread inside browser callbacks,
+	// and its simulated threads never run in parallel, so there is no race to guard against
+	public static boolean actorThreadCheck = true;
+
 	private synchronized void measure(){
 		
-		if (Thread.currentThread().getName().equals("SHPD Actor Thread")){
+		if (actorThreadCheck && Thread.currentThread().getName().equals("SHPD Actor Thread")){
 			throw new RuntimeException("Text measured from the actor thread!");
 		}
 		
