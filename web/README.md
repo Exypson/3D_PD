@@ -15,6 +15,19 @@ Open http://localhost:8765. Accounts need `localhost` or HTTPS (browser crypto r
 
 Connect the GitHub repo, set **Build command** to empty and **Build output directory** to `web`. Everything the game needs is in that folder (three.js r128 is bundled in `vendor/`, MIT licence alongside it); only the two web fonts come from Google Fonts, with system fallbacks.
 
+## SPD in the browser (`spd/`)
+
+`spd/` is the unmodified game (the Java code in this repo) compiled to JavaScript by the `teavm` module, served at `/spd/`. It is generated; rebuild it after changing the game code (needs JDK 17+):
+
+```bash
+./gradlew :teavm:gdx_teavm_web_js_build
+```
+```bash
+rm -rf web/spd && mkdir web/spd && (cd teavm/build/dist/js/webapp && tar cf - --exclude=WEB-INF .) | tar xf - -C web/spd
+```
+
+shortcut: the build output is committed so Cloudflare Pages can serve it without a Java build step; replace with a CI build when deploys get frequent. Add `-PreadableJs` to the first command for readable stack traces (that build is too big for Cloudflare).
+
 ## Test
 
 ```bash

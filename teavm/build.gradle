@@ -26,7 +26,7 @@ gdxTeaVM {
     webDefaults {
         mainClass = 'com.shatteredpixel.shatteredpixeldungeon.teavm.WebLauncher'
         htmlTitle = '3D PD'
-        obfuscated = false  // readable stack traces while porting
+        obfuscated = !project.hasProperty('readableJs')  // -PreadableJs for readable stack traces; minified stays under Cloudflare's 25 MiB/file
     }
     js {
         outOfProcess = true  // SPD is big; TeaVM needs more heap than the Gradle daemon has
