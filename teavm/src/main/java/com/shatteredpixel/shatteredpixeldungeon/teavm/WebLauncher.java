@@ -6,6 +6,8 @@ import com.github.xpenatan.gdx.teavm.backends.web.WebApplicationConfiguration;
 import com.github.xpenatan.gdx.teavm.backends.web.WebPreferences;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.render3d.World3D;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.RenderedText;
@@ -13,6 +15,7 @@ import com.watabou.utils.Bundle;
 import com.watabou.utils.Reflection;
 import com.watabou.utils.FileUtils;
 import org.teavm.jso.browser.Storage;
+import org.teavm.jso.browser.Window;
 
 public class WebLauncher {
 
@@ -31,6 +34,8 @@ public class WebLauncher {
 		Reflection.factory = new GeneratedFactory(); // TeaVM can't construct classes by name; saves need it
 		RenderedText.actorThreadCheck = false; // false alarm under TeaVM's simulated threads, see RenderedText
 		Actor.useThreadInterrupt = false; // TeaVM breaks locks on interrupted waits, see Actor.interruptActorThread
+		// the dungeon is drawn in 3D unless the page is opened with ?2d
+		if (!Window.current().getLocation().getSearch().contains("2d")) GameScene.worldView = new World3D();
 		Bundle.compressByDefault = false; // TeaVM's gzip writer is broken; saves are stored uncompressed in IndexedDB
 		// saves go to libGDX "local" files, which this backend keeps in browser storage
 		FileUtils.setDefaultFileProperties(Files.FileType.Local, "");

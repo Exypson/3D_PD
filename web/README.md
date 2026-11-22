@@ -17,7 +17,7 @@ Connect the GitHub repo, set **Build command** to empty and **Build output direc
 
 ## SPD in the browser (`spd/`)
 
-`spd/` is the unmodified game (the Java code in this repo) compiled to JavaScript by the `teavm` module, served at `/spd/`. It is generated; rebuild it after changing the game code (needs JDK 17+):
+`spd/` is the game (the Java code in this repo) compiled to JavaScript by the `teavm` module, served at `/spd/`. The dungeon is drawn in 3D (`core/.../render3d/World3D.java`, original placeholder shapes, SPD's interface on top); open `/spd/?2d` for the original 2D view. It is generated; rebuild it after changing the game code (needs JDK 17+):
 
 ```bash
 ./gradlew :teavm:gdx_teavm_web_js_build

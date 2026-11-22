@@ -160,6 +160,29 @@ import java.util.Locale;
 
 public class GameScene extends PixelScene {
 
+	// Optional replacement view of the dungeon (the web build sets a 3D one). When set, layers drawn with the main
+	// (world) camera are skipped and taps on the map are turned into cells through it. The UI is unchanged.
+	public interface WorldView {
+		void render();
+		int cellAt( float screenX, float screenY ); // -1 when the point isn't over the map
+	}
+	public static WorldView worldView = null;
+
+	@Override
+	public synchronized void draw() {
+		if (worldView == null) {
+			super.draw();
+			return;
+		}
+		worldView.render();
+		for (int i = 0; i < length; i++) {
+			Gizmo g = members.get( i );
+			if (g != null && g.exists && g.isVisible() && g.camera() != Camera.main) {
+				g.draw();
+			}
+		}
+	}
+
 	static GameScene scene;
 
 	private SkinnedBlock water;

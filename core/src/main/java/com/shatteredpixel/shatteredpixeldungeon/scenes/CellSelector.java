@@ -81,6 +81,11 @@ public class CellSelector extends ScrollArea {
 			
 			dragging = false;
 			
+		} else if (GameScene.worldView != null) {
+
+			int cell = GameScene.worldView.cellAt( event.current.x, event.current.y );
+			if (cell != -1) select( cell, event.button );
+
 		} else {
 			
 			PointF p = Camera.main.screenToCamera( (int) event.current.x, (int) event.current.y );
