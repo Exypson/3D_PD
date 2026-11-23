@@ -167,6 +167,8 @@ public class GameScene extends PixelScene {
 		int cellAt( float screenX, float screenY ); // -1 when the point isn't over the map
 		// writes a column-major 4x4 matrix mapping 2D world pixels onto the 3D view, used for effects drawn in 2D
 		void worldMatrix( float[] out );
+		// a layer of 2D overlays (e.g. name tags), added to the world layers so it is drawn through that matrix
+		Group overlay();
 	}
 	public static WorldView worldView = null;
 	private final float[] savedWorldMatrix = new float[16];
@@ -438,6 +440,7 @@ public class GameScene extends PixelScene {
 		add( new TargetHealthIndicator() );
 		
 		add( emoicons );
+		if (worldView != null) add( worldView.overlay() );
 		
 		add( cellSelector = new CellSelector( tiles ) );
 

@@ -25,7 +25,6 @@ import com.badlogic.gdx.graphics.PerspectiveCamera;
 import com.badlogic.gdx.graphics.VertexAttribute;
 import com.badlogic.gdx.graphics.glutils.ShaderProgram;
 import com.badlogic.gdx.math.Matrix4;
-import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.math.collision.Ray;
 import com.badlogic.gdx.utils.FloatArray;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
@@ -34,20 +33,26 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
-import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap;
+import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
+import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.watabou.glscripts.Script;
 import com.watabou.glwrap.Blending;
 import com.watabou.glwrap.Quad;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
+import com.watabou.noosa.Group;
 import com.watabou.noosa.NoosaScript;
 
+import java.util.HashMap;
+import java.util.HashSet;
+
 // A 3D view of the dungeon drawn under SPD's own (unchanged) 2D interface.
-// Geometry comes from the level map, fog from the hero's field of view, and characters are placed where their
-// 2D sprites are, so movement timing stays SPD's own. All shapes and colours are original placeholder designs.
+// Geometry comes from the level map and fog from the hero's field of view; terrain shapes and colours are placeholders.
+// Characters and items are plain placeholder tokens with name tags until real models arrive (docs/3D_ASSETS.md).
 public class World3D implements GameScene.WorldView {
 
 	private static final int STRIDE = 10; // position 3, normal 3, colour 4
@@ -73,9 +78,10 @@ public class World3D implements GameScene.WorldView {
 			{0.50f, 0.44f, 0.36f,  0.44f, 0.38f, 0.30f,  0.22f, 0.38f, 0.50f},
 			{0.36f, 0.24f, 0.26f,  0.30f, 0.18f, 0.22f,  0.60f, 0.20f, 0.08f},
 	};
+
 	private static final float[][] TRAP_COLORS = { // Trap.RED .. Trap.BLACK
-			{0.85f, 0.2f, 0.2f}, {0.9f, 0.55f, 0.15f}, {0.9f, 0.85f, 0.2f}, {0.3f, 0.75f, 0.3f},
-			{0.25f, 0.75f, 0.85f}, {0.6f, 0.35f, 0.85f}, {0.85f, 0.85f, 0.85f}, {0.25f, 0.25f, 0.25f}};
+			{0.85f, 0.2f, 0.2f}, {0.9f, 0.55f, 0.15f}, {0.9f, 0.85f, 0.2f}, {0.3f, 0.75f, 0.3f}, {0.25f, 0.75f, 0.85f},
+			{0.6f, 0.35f, 0.85f}, {0.9f, 0.9f, 0.9f}, {0.55f, 0.55f, 0.55f}, {0.15f, 0.15f, 0.15f}};
 
 	private ShaderProgram shader;
 	private Mesh terrainMesh, dynamicMesh;
@@ -103,7 +109,9 @@ public class World3D implements GameScene.WorldView {
 			builtFor = lv;
 			builtHash = h;
 		}
-		buildDynamic(lv);
+
+		buildTokens(lv);
+		updateLabels(lv);
 		dynamicMesh = upload(dynamicMesh);
 		dynamicVerts = buf.size / STRIDE;
 
@@ -160,6 +168,138 @@ public class World3D implements GameScene.WorldView {
 		v[Matrix4.M33] = 1f;
 		projected.set(cam.combined).mul(floorMap);
 		System.arraycopy(projected.val, 0, out, 0, 16);
+	}
+
+	// ---------- placeholder tokens and name tags (until real models exist) ----------
+
+	private void buildTokens(Level lv) {
+		buf.clear();
+		token(Dungeon.hero, heroColor());
+		for (Mob m : lv.mobs.toArray(new Mob[0])) token(m, hashColor(m.getClass().getName()));
+		for (Plant p : lv.plants.valueList()) {
+			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
+			float fog = lv.heroFOV[p.pos] ? 1f : 0.42f, x = p.pos % lv.width(), z = p.pos / lv.width();
+			float[] c = hashColor(p.getClass().getName());
+			box(x, 0f, z, 0.05f, 0.22f, 0.05f, 0f, 0.25f * fog, 0.55f * fog, 0.25f * fog);
+			box(x, 0.22f, z, 0.16f, 0.1f, 0.16f, 0.785f, c[0] * fog, c[1] * fog, c[2] * fog);
+		}
+		for (Heap h : lv.heaps.valueList()) {
+			if (h.sprite == null || !h.sprite.visible || !lv.heroFOV[h.pos]) continue;
+			float x = h.pos % lv.width(), z = h.pos / lv.width();
+			switch (h.type) {
+				case CHEST: case LOCKED_CHEST: case CRYSTAL_CHEST: box(x, 0f, z, 0.45f, 0.32f, 0.34f, 0f, 0.5f, 0.34f, 0.18f); break;
+				case TOMB: box(x, 0f, z, 0.45f, 0.3f, 0.7f, 0f, 0.55f, 0.55f, 0.55f); break;
+				case SKELETON: case REMAINS: box(x, 0f, z, 0.4f, 0.06f, 0.3f, 0.6f, 0.85f, 0.82f, 0.75f); break;
+				default: {
+					float[] c = h.peek() == null ? new float[]{0.8f, 0.8f, 0.8f} : hashColor(h.peek().getClass().getName());
+					box(x, 0.08f, z, 0.2f, 0.2f, 0.2f, Game.timeTotal * 1.5f + h.pos, c[0], c[1], c[2]);
+				}
+			}
+		}
+	}
+
+	// a plain pawn: base, body, head. Bosses and large creatures are bigger, flyers float over their base.
+	private void token(Char ch, float[] c) {
+		CharSprite s = ch.sprite;
+		if (s == null || !s.visible || !ch.isAlive()) return;
+		float x = spriteX(s), z = spriteZ(s);
+		float k = Char.hasProp(ch, Char.Property.BOSS) ? 1.5f : (Char.hasProp(ch, Char.Property.LARGE) ? 1.25f : 1f);
+		float lift = ch.flying ? 0.3f : 0f;
+		box(x, 0f, z, 0.55f * k, 0.05f, 0.55f * k, 0f, c[0] * 0.35f, c[1] * 0.35f, c[2] * 0.35f);
+		box(x, 0.05f + lift, z, 0.34f * k, 0.42f * k, 0.34f * k, 0f, c[0], c[1], c[2]);
+		box(x, 0.05f + lift + 0.42f * k, z, 0.26f * k, 0.24f * k, 0.26f * k, 0f,
+				Math.min(1f, c[0] * 1.3f + 0.1f), Math.min(1f, c[1] * 1.3f + 0.1f), Math.min(1f, c[2] * 1.3f + 0.1f));
+	}
+
+	private static float[] heroColor() {
+		switch (Dungeon.hero.heroClass) {
+			case WARRIOR: return new float[]{0.72f, 0.22f, 0.18f};
+			case MAGE: return new float[]{0.42f, 0.29f, 0.78f};
+			case ROGUE: return new float[]{0.3f, 0.33f, 0.4f};
+			case HUNTRESS: return new float[]{0.23f, 0.54f, 0.29f};
+			case DUELIST: return new float[]{0.7f, 0.55f, 0.2f};
+			default: return new float[]{0.85f, 0.82f, 0.7f};
+		}
+	}
+
+	// a stable colour per class name, so each monster or item type keeps its colour
+	private static float[] hashColor(String name) {
+		float hue = (name.hashCode() & 0xffff) / 65535f * 6f, f = hue - (int) hue, v = 0.78f, sat = 0.55f;
+		float p = v * (1 - sat), q = v * (1 - sat * f), t = v * (1 - sat * (1 - f));
+		switch ((int) hue % 6) {
+			case 0: return new float[]{v, t, p};
+			case 1: return new float[]{q, v, p};
+			case 2: return new float[]{p, v, t};
+			case 3: return new float[]{p, q, v};
+			case 4: return new float[]{t, p, v};
+			default: return new float[]{v, p, q};
+		}
+	}
+
+	private final HashMap<Object, RenderedTextBlock> labels = new HashMap<>();
+	private final HashSet<Object> seen = new HashSet<>();
+	private Group layer;
+	private final java.util.ArrayList<float[]> placed = new java.util.ArrayList<>();
+
+	// GameScene adds this to its world layers, so the tags are updated and drawn like SPD's damage numbers
+	@Override
+	public Group overlay() {
+		labels.clear();
+		layer = new Group();
+		return layer;
+	}
+
+	private void updateLabels(Level lv) {
+		if (layer == null) return;
+		seen.clear();
+		placed.clear();
+		// nearest monsters first, so in a crowd the closest ones keep their tags
+		Mob[] mobs = lv.mobs.toArray(new Mob[0]);
+		java.util.Arrays.sort(mobs, (a, b) -> Integer.compare(lv.distance(a.pos, Dungeon.hero.pos), lv.distance(b.pos, Dungeon.hero.pos)));
+		for (Mob m : mobs) label(m, m);
+		int w = lv.width();
+		for (Heap h : lv.heaps.valueList()) {
+			if (h.sprite == null || !h.sprite.visible || !lv.heroFOV[h.pos]) continue;
+			String text = (h.type == Heap.Type.HEAP || h.type == Heap.Type.FOR_SALE) && h.peek() != null ? h.peek().name() : h.title();
+			place(h, text, (h.pos % w) * 16 + 8, (h.pos / w + 1) * 16 - 11, 0xFFFFFF);
+		}
+		for (Trap tr : lv.traps.valueList()) {
+			if (!tr.visible || !lv.heroFOV[tr.pos]) continue;
+			place(tr, tr.name(), (tr.pos % w) * 16 + 8, (tr.pos / w + 1) * 16 - 4, tr.active ? 0xFFC080 : 0xA0A0A0);
+		}
+		for (Plant p : lv.plants.valueList()) {
+			if (!lv.heroFOV[p.pos]) continue;
+			place(p, p.name(), (p.pos % w) * 16 + 8, (p.pos / w + 1) * 16 - 9, 0xB0FFB0);
+		}
+		labels.keySet().removeIf(k -> {
+			if (seen.contains(k)) return false;
+			RenderedTextBlock t = labels.get(k);
+			layer.remove(t);
+			t.destroy();
+			return true;
+		});
+	}
+
+	private void label(Object key, Char ch) {
+		CharSprite s = ch.sprite;
+		if (s == null || !s.visible || !ch.isAlive()) return;
+		int color = ch == Dungeon.hero ? 0x9AD0FF : ch.alignment == Char.Alignment.ALLY ? 0x8AFF8A : ch.alignment == Char.Alignment.ENEMY ? 0xFF9A8A : 0xFFE08A;
+		float k = Char.hasProp(ch, Char.Property.BOSS) ? 1.5f : 1f;
+		place(key, ch.name(), s.x + s.width() / 2f, s.y + s.height() - 15 * k, color);
+	}
+
+	private void place(Object key, String text, float centreX, float bottomY, int color) {
+		RenderedTextBlock t = labels.get(key);
+		if (t == null) { t = PixelScene.renderTextBlock(text, 6); labels.put(key, t); layer.add(t); }
+		if (!text.equals(t.text())) t.text(text);
+		t.hardlight(color);
+		float x = centreX - t.width() / 2f, y = bottomY - t.height();
+		for (float[] r : placed) {
+			if (x < r[0] + r[2] && r[0] < x + t.width() && y < r[1] + r[3] && r[1] < y + t.height()) return; // would overlap a closer tag
+		}
+		t.setPos(x, y);
+		placed.add(new float[]{x, y, t.width(), t.height()});
+		seen.add(key);
 	}
 
 	// ---------- camera: follows SPD's own main camera, so its follow, drag-to-pan and pinch zoom all carry over ----------
@@ -272,7 +412,7 @@ public class World3D implements GameScene.WorldView {
 				case Terrain.TRAP: case Terrain.INACTIVE_TRAP: {
 					top(x, z, 0f, 1f, fr, fg, fb);
 					Trap trap = lv.traps.get(c);
-					float[] tc = t == Terrain.INACTIVE_TRAP || trap == null ? new float[]{0.35f, 0.35f, 0.35f} : TRAP_COLORS[Math.max(0, Math.min(7, trap.color))];
+					float[] tc = t == Terrain.INACTIVE_TRAP || trap == null ? new float[]{0.35f, 0.35f, 0.35f} : TRAP_COLORS[Math.max(0, Math.min(8, trap.color))];
 					top(x, z, 0.01f, 0.55f, tc[0] * fog, tc[1] * fog, tc[2] * fog);
 					break;
 				}
@@ -305,23 +445,6 @@ public class World3D implements GameScene.WorldView {
 
 	// ---------- characters and items ----------
 
-
-	private final Models3D models = new Models3D(this);
-
-	private void buildDynamic(Level lv) {
-		buf.clear();
-		float time = Game.timeTotal;
-		models.character(Dungeon.hero, time);
-		for (Mob m : lv.mobs.toArray(new Mob[0])) models.character(m, time);
-		for (Heap heap : lv.heaps.valueList()) {
-			if (heap.sprite == null || !heap.sprite.visible || !lv.heroFOV[heap.pos]) continue;
-			models.heap(heap, heap.pos % lv.width(), heap.pos / lv.width(), time);
-		}
-		for (Plant p : lv.plants.valueList()) {
-			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
-			models.plant(p, p.pos % lv.width(), p.pos / lv.width(), lv.heroFOV[p.pos] ? 1f : 0.42f);
-		}
-	}
 
 	static float spriteX(CharSprite s) { return (s.x + s.width() / 2f) / 16f - 0.5f; }
 	static float spriteZ(CharSprite s) { return (s.y + s.height()) / 16f - 1f; }
@@ -367,30 +490,6 @@ public class World3D implements GameScene.WorldView {
 			float nx = (a[1] - bb[1]), nz = (bb[0] - a[0]);
 			float len = (float) Math.sqrt(nx * nx + nz * nz);
 			face(new float[]{a[0], y, a[1], a[0], y1, a[1], bb[0], y1, bb[1], bb[0], y, bb[1]}, -nx / len, 0, -nz / len, r * 0.85f, g * 0.85f, b * 0.85f);
-		}
-	}
-
-	private static final float[][] CUBE = { // face normal, then 4 corners of the unit cube
-			{0, 1, 0,  -.5f, .5f, -.5f,  -.5f, .5f, .5f,  .5f, .5f, .5f,  .5f, .5f, -.5f},
-			{0, -1, 0, -.5f, -.5f, .5f,  -.5f, -.5f, -.5f,  .5f, -.5f, -.5f,  .5f, -.5f, .5f},
-			{0, 0, 1,  -.5f, -.5f, .5f,  -.5f, .5f, .5f,  .5f, .5f, .5f,  .5f, -.5f, .5f},
-			{0, 0, -1, .5f, -.5f, -.5f,  .5f, .5f, -.5f,  -.5f, .5f, -.5f,  -.5f, -.5f, -.5f},
-			{1, 0, 0,  .5f, -.5f, .5f,  .5f, .5f, .5f,  .5f, .5f, -.5f,  .5f, -.5f, -.5f},
-			{-1, 0, 0, -.5f, -.5f, -.5f,  -.5f, .5f, -.5f,  -.5f, .5f, .5f,  -.5f, -.5f, .5f},
-	};
-	private final Vector3 tv = new Vector3(), tn = new Vector3();
-	private final float[] fc = new float[12];
-
-	// the unit cube (-0.5..0.5) transformed by m, in one colour scaled by light (fog)
-	void cube(Matrix4 m, int rgb, float light) {
-		float r = ((rgb >> 16) & 255) / 255f * light, g = ((rgb >> 8) & 255) / 255f * light, b = (rgb & 255) / 255f * light;
-		for (float[] f : CUBE) {
-			tn.set(f[0], f[1], f[2]).rot(m).nor();
-			for (int i = 0; i < 4; i++) {
-				tv.set(f[3 + i * 3], f[4 + i * 3], f[5 + i * 3]).mul(m);
-				fc[i * 3] = tv.x; fc[i * 3 + 1] = tv.y; fc[i * 3 + 2] = tv.z;
-			}
-			face(fc, tn.x, tn.y, tn.z, r, g, b);
 		}
 	}
 

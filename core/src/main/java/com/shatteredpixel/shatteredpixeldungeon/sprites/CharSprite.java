@@ -89,11 +89,6 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 		BURNING, LEVITATING, INVISIBLE, PARALYSED, FROZEN, ILLUMINATED, CHILLED, DARKENED, MARKED, HEALING, SHIELDED, HEARTS, GLOWING, AURA
 	}
 	
-	// read by the 3D view to animate its models
-	public boolean isAttacking() {
-		return curAnim != null && (curAnim == attack || curAnim == zap);
-	}
-
 	protected Animation idle;
 	protected Animation run;
 	protected Animation attack;
