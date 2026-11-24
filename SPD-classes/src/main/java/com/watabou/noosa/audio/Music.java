@@ -25,6 +25,7 @@ import com.badlogic.gdx.Gdx;
 import com.watabou.noosa.Game;
 import com.watabou.utils.Callback;
 import com.watabou.utils.DeviceCompat;
+import com.watabou.utils.LazyAssets;
 import com.watabou.utils.Random;
 
 import java.util.ArrayList;
@@ -133,7 +134,8 @@ public enum Music {
 		try {
 			for (int i = 0; i < trackList.length; i++) {
 				//create all the players we need pre-emptively, so they will be cached
-				createPlayer(trackList[i]);
+				//(tracks still downloading in the web build are skipped; asking starts their download)
+				if (LazyAssets.state.apply(trackList[i]) == LazyAssets.READY) createPlayer(trackList[i]);
 				if (Random.Float() < trackChances[i]) {
 					trackQueue.add(trackList[i]);
 				}
@@ -167,6 +169,9 @@ public enum Music {
 	}
 
 	public synchronized void update(){
+		if (pendingTrack != null && LazyAssets.state.apply(pendingTrack) != LazyAssets.PENDING) {
+			play(pendingTrack, pendingListener);
+		}
 		if (fadeTotal > 0f && !paused){
 			fadeTime += Game.elapsed;
 
@@ -216,7 +221,18 @@ public enum Music {
 		play(trackQueue.remove(0), trackLooper);
 	};
 
+	// a track that is still downloading (web build), started from update() once it has arrived
+	private String pendingTrack;
+	private com.badlogic.gdx.audio.Music.OnCompletionListener pendingListener;
+
 	private synchronized void play(String track, com.badlogic.gdx.audio.Music.OnCompletionListener listener){
+		int state = LazyAssets.state.apply(track);
+		if (state != LazyAssets.READY) {
+			pendingTrack = state == LazyAssets.PENDING ? track : null;
+			pendingListener = listener;
+			return;
+		}
+		pendingTrack = null;
 		try {
 			fadeTime = fadeTotal = -1;
 
@@ -263,6 +279,7 @@ public enum Music {
 	}
 
 	public synchronized void stop() {
+		pendingTrack = null;
 		if (player != null) {
 			player.stop();
 			player = null;

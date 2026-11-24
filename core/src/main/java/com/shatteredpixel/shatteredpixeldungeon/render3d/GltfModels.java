@@ -28,6 +28,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.watabou.noosa.Game;
+import com.watabou.utils.LazyAssets;
 import net.mgsx.gltf.loaders.glb.GLBLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRFlagAttribute;
 import net.mgsx.gltf.scene3d.lights.DirectionalLightEx;
@@ -42,10 +43,11 @@ import java.util.HashSet;
 
 // Artist-made .glb models from assets/models3d (see docs/3D_ASSETS.md), drawn with gdx-gltf.
 // Anything without a model file keeps World3D's placeholder token.
-final class GltfModels {
+public final class GltfModels {
 
 	// characters are authored ~1.1 tiles tall; walls are 1.0, so characters are drawn a bit smaller
 	static final float CHAR_SCALE = 0.85f;
+
 
 	private final SceneManager scenes;
 	private final HashMap<String, SceneAsset> assets = new HashMap<>();
@@ -77,8 +79,10 @@ final class GltfModels {
 	private SceneAsset asset(String file) {
 		SceneAsset a = assets.get(file);
 		if (a != null || missing.contains(file)) return a;
+		int state = LazyAssets.state.apply("models3d/" + file); // the web build downloads models on demand
+		if (state == LazyAssets.MISSING) { missing.add(file); return null; }
+		if (state == LazyAssets.PENDING) return null; // keep the placeholder until it has downloaded
 		FileHandle fh = Gdx.files.internal("models3d/" + file);
-		if (!fh.exists()) { missing.add(file); return null; }
 		a = new GLBLoader().load(fh);
 		// some exports are flagged unlit; the game lights everything, so drop the flag
 		for (Material mat : a.scene.model.materials) mat.remove(PBRFlagAttribute.Unlit);

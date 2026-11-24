@@ -16,8 +16,22 @@ dependencies {
     implementation "com.github.xpenatan.gdx-teavm:gdx-controllers-web:1.6.2"
 }
 
+// Everything in gdxTeaVM.assets is downloaded before the title screen. 3D models, music and non-English text are left out and
+// published next to the game instead; the launcher downloads each one when it is first needed.
+def gameAssets = new File(project(':core').projectDir, 'src/main/assets')
+tasks.register('syncPreloadAssets', Sync) {
+    from(gameAssets) { exclude 'models3d/**', 'music/**', 'messages/**/*_*.properties' }
+    into layout.buildDirectory.dir('preload-assets')
+}
+tasks.register('copyLazyModels', Copy) {
+    from(gameAssets) { include 'models3d/**/*.glb', 'music/**', 'messages/**/*_*.properties' }
+    into layout.buildDirectory.dir('dist/js/webapp/assets')
+}
+tasks.matching { it.name == 'gdx_teavm_web_js_build' }.configureEach { dependsOn 'syncPreloadAssets'; finalizedBy 'copyLazyModels' }
+tasks.matching { it.name.startsWith('gdx_teavm') || it.name == 'generateJavaScript' }.configureEach { dependsOn 'syncPreloadAssets' }
+
 gdxTeaVM {
-    assets(new File(project(':core').projectDir, 'src/main/assets'))
+    assets(layout.buildDirectory.dir('preload-assets')) // the game's assets minus models3d (see syncPreloadAssets)
     assets(new File(project(':desktop').projectDir, 'src/main/assets/fonts').parentFile) // droid_sans.ttf fallback font lives with desktop
     // saves restore objects by class name, so every game class must stay findable by name
     // shortcut: no reflection rules yet. The catch-all pattern below runs TeaVM out of memory (8 GB+), so saving/loading
