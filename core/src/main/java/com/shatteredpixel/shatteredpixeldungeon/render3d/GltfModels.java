@@ -23,6 +23,11 @@ import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.math.Vector3;
+import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
+import com.badlogic.gdx.utils.JsonValue;
+import com.badlogic.gdx.utils.JsonReader;
+import com.badlogic.gdx.graphics.g3d.model.Node;
+import com.badlogic.gdx.math.Matrix4;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
@@ -90,21 +95,31 @@ public final class GltfModels {
 		return a;
 	}
 
-	static String fileFor(Char ch) {
+	// a model file for this character: the hero by class and armour tier, everything else by class name
+	// (nested classes use a dot, e.g. char_Shaman.RedShaman.glb; translucent ones carry an _alpha suffix)
+	private String fileFor(Char ch) {
 		if (ch instanceof Hero) {
 			String c = ((Hero) ch).heroClass.name();
 			return "heroes/hero_" + c.charAt(0) + c.substring(1).toLowerCase() + "_t" + ((Hero) ch).tier() + ".glb";
 		}
-		return null; // monsters come in the next step
+		String n = ch.getClass().getName();
+		n = n.substring(n.lastIndexOf('.') + 1).replace('$', '.');
+		String plain = "characters/char_" + n + ".glb";
+		if (!missing.contains(plain)) return plain;
+		return "characters/char_" + n + "_alpha.glb";
 	}
 
 	/** True when this character is drawn as a model this frame (so World3D skips its token). */
 	boolean place(Char ch) {
 		CharSprite s = ch.sprite;
+		if (s == null || !s.visible) return false;
+		String state = s.animState();
+		if (!ch.isAlive() && !state.equals("die")) return false; // a dying model stays until its sprite is gone
 		String file = fileFor(ch);
-		if (file == null || s == null || !s.visible || !ch.isAlive()) return false;
 		SceneAsset a = asset(file);
+		if (a == null && !(ch instanceof Hero) && missing.contains(file) && !file.endsWith("_alpha.glb")) a = asset(fileFor(ch)); // try the _alpha name
 		if (a == null) return false;
+		file = assets.containsValue(a) ? keyOf(a) : file;
 		Scene sc = live.get(ch);
 		if (sc == null || !file.equals(liveFile.get(ch))) {
 			if (sc != null) scenes.removeScene(sc);
@@ -114,16 +129,70 @@ public final class GltfModels {
 			liveFile.put(ch, file);
 			liveClip.remove(ch);
 		}
-		String clip = s.isMoving ? "walk" : "idle"; // the rest pose is a T-pose, so a clip always plays
+		// SPD's own animation state picks the clip; walking is also shown while the sprite slides between tiles
+		String clip = s.isMoving && state.equals("idle") ? "walk" : state;
+		if (sc.modelInstance.getAnimation(clip) == null) clip = s.isMoving ? "walk" : "idle";
 		if (!clip.equals(liveClip.get(ch))) {
-			sc.animationController.setAnimation(clip, -1);
+			boolean once = clip.equals("attack") || clip.equals("cast") || clip.equals("operate") || clip.equals("die");
+			sc.animationController.setAnimation(clip, once ? 1 : -1);
 			liveClip.put(ch, clip);
 		}
 		float yaw = s.flipHorizontal ? -45f : 45f; // three-quarter view, like the 2D facing
 		sc.modelInstance.transform.setToTranslation(World3D.spriteX(s), 0f, World3D.spriteZ(s))
 				.rotate(Vector3.Y, yaw).scale(CHAR_SCALE, CHAR_SCALE, CHAR_SCALE);
+		if (ch instanceof Hero) holdWeapon((Hero) ch, sc);
 		seen.add(ch);
 		return true;
+	}
+
+	private String keyOf(SceneAsset a) {
+		for (java.util.Map.Entry<String, SceneAsset> e : assets.entrySet()) if (e.getValue() == a) return e.getKey();
+		return null;
+	}
+
+	// ---------- the hero's weapon, held at grip_R ----------
+
+	private HashMap<String, String> itemFiles; // Item.image() -> item model file (items/items.json)
+	private Scene weapon;
+	private String weaponFile;
+	private final Matrix4 tmp = new Matrix4();
+
+	private String itemFile(int image) {
+		if (itemFiles == null) {
+			int state = LazyAssets.state.apply("models3d/items/items.json"); // downloaded on demand like the models
+			if (state == LazyAssets.PENDING) return null;
+			itemFiles = new HashMap<>();
+			if (state == LazyAssets.READY) for (JsonValue v : new JsonReader().parse(Gdx.files.internal("models3d/items/items.json")).get("by_sheet_index")) itemFiles.put(v.name, v.asString());
+		}
+		String f = itemFiles.get(Integer.toString(image));
+		return f == null ? null : "items/" + f;
+	}
+
+	private void holdWeapon(Hero h, Scene hero) {
+		KindOfWeapon w = h.belongings.weapon();
+		String file = w == null ? null : itemFile(w.image());
+		SceneAsset a = file == null ? null : asset(file);
+		Node grip = hero.modelInstance.getNode("grip_R", true);
+		if (a == null || grip == null) { dropWeapon(); return; }
+		if (weapon == null || !file.equals(weaponFile)) {
+			dropWeapon();
+			weapon = new Scene(a.scene);
+			scenes.addScene(weapon);
+			weaponFile = file;
+		}
+		weaponSeen = true;
+		// hero transform x hand grip x inverse(the weapon's own grip): the weapon's grip lands in the hand
+		Node own = weapon.modelInstance.getNode("grip", true);
+		weapon.modelInstance.transform.set(hero.modelInstance.transform).mul(grip.globalTransform);
+		if (own != null) weapon.modelInstance.transform.mul(tmp.set(own.globalTransform).inv());
+	}
+
+	private boolean weaponSeen;
+
+	private void dropWeapon() {
+		if (weapon != null) scenes.removeScene(weapon);
+		weapon = null;
+		weaponFile = null;
 	}
 
 	/** Call once per frame after all place() calls: drops models of characters that are gone, animates and draws the rest. */
@@ -136,6 +205,8 @@ public final class GltfModels {
 			return true;
 		});
 		seen.clear();
+		if (!weaponSeen) dropWeapon();
+		weaponSeen = false;
 		scenes.update(Game.elapsed);
 		scenes.render();
 	}

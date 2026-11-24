@@ -39,6 +39,11 @@ import java.util.ArrayList;
 
 public class GooSprite extends MobSprite {
 	
+	@Override
+	public String animState() {
+		return curAnim != null && (curAnim == pump || curAnim == pumpAttack) ? "pump" : super.animState();
+	}
+
 	private Animation pump;
 	private Animation pumpAttack;
 

@@ -24,7 +24,7 @@ tasks.register('syncPreloadAssets', Sync) {
     into layout.buildDirectory.dir('preload-assets')
 }
 tasks.register('copyLazyModels', Copy) {
-    from(gameAssets) { include 'models3d/**/*.glb', 'music/**', 'messages/**/*_*.properties' }
+    from(gameAssets) { include 'models3d/**/*.glb', 'models3d/**/*.json', 'music/**', 'messages/**/*_*.properties' }
     into layout.buildDirectory.dir('dist/js/webapp/assets')
 }
 tasks.matching { it.name == 'gdx_teavm_web_js_build' }.configureEach { dependsOn 'syncPreloadAssets'; finalizedBy 'copyLazyModels' }
