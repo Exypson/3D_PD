@@ -1,0 +1,170 @@
+{
+ "region": "sewers",
+ "edges": "edge pieces are modelled on the +Y side facing -Y; rotate onto each side whose neighbour is a different terrain",
+ "terrain": {
+  "CHASM": {
+   "file": "tile_sewers_CHASM.glb",
+   "edge": "tile_sewers_CHASM_edge.glb",
+   "edge_next_to_wall": "tile_sewers_CHASM_edge_wall.glb"
+  },
+  "EMPTY": {
+   "file": "tile_sewers_EMPTY.glb",
+   "variants": [
+    "tile_sewers_EMPTY_alt1.glb",
+    "tile_sewers_EMPTY_alt2.glb"
+   ]
+  },
+  "GRASS": {
+   "file": "tile_sewers_GRASS.glb",
+   "variants": [
+    "tile_sewers_GRASS_alt.glb"
+   ]
+  },
+  "EMPTY_WELL": {
+   "file": "tile_sewers_EMPTY_WELL.glb"
+  },
+  "WALL": {
+   "file": "tile_sewers_WALL.glb",
+   "variants": [
+    "tile_sewers_WALL_alt.glb"
+   ]
+  },
+  "DOOR": {
+   "file": "tile_sewers_DOOR.glb",
+   "rotate": "90 deg when the passage runs east-west"
+  },
+  "OPEN_DOOR": {
+   "file": "tile_sewers_OPEN_DOOR.glb",
+   "rotate": "as DOOR"
+  },
+  "ENTRANCE": {
+   "file": "tile_sewers_ENTRANCE.glb"
+  },
+  "EXIT": {
+   "file": "tile_sewers_EXIT.glb"
+  },
+  "EMBERS": {
+   "file": "tile_sewers_EMBERS.glb",
+   "variants": [
+    "tile_sewers_EMBERS_alt.glb"
+   ]
+  },
+  "LOCKED_DOOR": {
+   "file": "tile_sewers_LOCKED_DOOR.glb",
+   "rotate": "as DOOR"
+  },
+  "PEDESTAL": {
+   "file": "tile_sewers_PEDESTAL.glb"
+  },
+  "WALL_DECO": {
+   "file": "tile_sewers_WALL_DECO.glb",
+   "variants": [
+    "tile_sewers_WALL_DECO_alt.glb"
+   ]
+  },
+  "BARRICADE": {
+   "file": "tile_sewers_BARRICADE.glb"
+  },
+  "EMPTY_SP": {
+   "file": "tile_sewers_EMPTY_SP.glb",
+   "variants": [
+    "tile_sewers_EMPTY_SP_alt.glb"
+   ]
+  },
+  "HIGH_GRASS": {
+   "file": "tile_sewers_HIGH_GRASS.glb",
+   "variants": [
+    "tile_sewers_HIGH_GRASS_alt.glb"
+   ]
+  },
+  "SECRET_DOOR": {
+   "same_as": "WALL"
+  },
+  "SECRET_TRAP": {
+   "same_as": "EMPTY"
+  },
+  "TRAP": {
+   "same_as": "EMPTY",
+   "note": "trap plate model on top"
+  },
+  "INACTIVE_TRAP": {
+   "same_as": "EMPTY",
+   "note": "used trap plate model on top"
+  },
+  "EMPTY_DECO": {
+   "file": "tile_sewers_EMPTY_DECO.glb",
+   "variants": [
+    "tile_sewers_EMPTY_DECO_alt.glb"
+   ]
+  },
+  "LOCKED_EXIT": {
+   "file": "tile_sewers_LOCKED_EXIT.glb",
+   "rotate": "as DOOR"
+  },
+  "UNLOCKED_EXIT": {
+   "file": "tile_sewers_UNLOCKED_EXIT.glb",
+   "rotate": "as DOOR"
+  },
+  "CUSTOM_DECO": {
+   "note": "set piece"
+  },
+  "WELL": {
+   "file": "tile_sewers_WELL.glb"
+  },
+  "STATUE": {
+   "file": "tile_sewers_STATUE.glb"
+  },
+  "STATUE_SP": {
+   "file": "tile_sewers_STATUE_SP.glb"
+  },
+  "BOOKSHELF": {
+   "file": "tile_sewers_BOOKSHELF.glb",
+   "variants": [
+    "tile_sewers_BOOKSHELF_alt.glb"
+   ]
+  },
+  "ALCHEMY": {
+   "file": "tile_sewers_ALCHEMY.glb"
+  },
+  "WATER": {
+   "file": "tile_sewers_WATER.glb",
+   "edge": "tile_sewers_WATER_edge.glb"
+  },
+  "FURROWED_GRASS": {
+   "file": "tile_sewers_FURROWED_GRASS.glb",
+   "variants": [
+    "tile_sewers_FURROWED_GRASS_alt.glb"
+   ]
+  },
+  "CRYSTAL_DOOR": {
+   "file": "tile_sewers_CRYSTAL_DOOR.glb",
+   "rotate": "as DOOR"
+  },
+  "CUSTOM_DECO_EMPTY": {
+   "note": "set piece"
+  },
+  "REGION_DECO": {
+   "file": "tile_sewers_REGION_DECO.glb",
+   "note": "barrel"
+  },
+  "REGION_DECO_ALT": {
+   "file": "tile_sewers_REGION_DECO_ALT.glb",
+   "note": "barrel on wood floor"
+  },
+  "MINE_CRYSTAL": {
+   "note": "caves only"
+  },
+  "MINE_BOULDER": {
+   "note": "caves only"
+  },
+  "ENTRANCE_SP": {
+   "file": "tile_sewers_ENTRANCE_SP.glb"
+  },
+  "HERO_LKD_DR": {
+   "same_as": "LOCKED_DOOR"
+  },
+  "CUSTOM_DECO_WTR": {
+   "note": "set piece"
+  }
+ }
+}

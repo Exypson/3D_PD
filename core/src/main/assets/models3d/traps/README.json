@@ -1,0 +1,25 @@
+{
+ "traps": "trap_<SHAPE>_<COLOUR>.glb from Trap.shape / Trap.color; used traps use BLACK",
+ "colours": [
+  "RED",
+  "ORANGE",
+  "YELLOW",
+  "GREEN",
+  "TEAL",
+  "VIOLET",
+  "WHITE",
+  "GREY",
+  "BLACK"
+ ],
+ "shapes": [
+  "DOTS",
+  "WAVES",
+  "GRILL",
+  "STARS",
+  "DIAMOND",
+  "CROSSHAIR",
+  "LARGE_DOT"
+ ],
+ "plants": "plant_<Class>.glb, see Plant.image",
+ "heap_HEAP": "no model: show the top item"
+}

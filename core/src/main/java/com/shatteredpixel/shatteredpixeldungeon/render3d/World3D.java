@@ -84,6 +84,7 @@ public class World3D implements GameScene.WorldView {
 			{0.6f, 0.35f, 0.85f}, {0.9f, 0.9f, 0.9f}, {0.55f, 0.55f, 0.55f}, {0.15f, 0.15f, 0.15f}};
 
 	private ShaderProgram shader;
+	private GltfModels models;
 	private Mesh terrainMesh, dynamicMesh;
 	private int terrainVerts, dynamicVerts;
 	private final FloatArray buf = new FloatArray(false, 1 << 16);
@@ -132,6 +133,7 @@ public class World3D implements GameScene.WorldView {
 				hs != null ? spriteZ(hs) : Dungeon.hero.pos / lv.width());
 		if (terrainVerts > 0) terrainMesh.render(shader, GL20.GL_TRIANGLES, 0, terrainVerts);
 		if (dynamicVerts > 0) dynamicMesh.render(shader, GL20.GL_TRIANGLES, 0, dynamicVerts);
+		models.render(); // artist models (gdx-gltf), same depth buffer
 
 		// hand GL back to SPD's 2D renderer in the state it caches
 		gl.glDisable(GL20.GL_DEPTH_TEST);
@@ -174,8 +176,9 @@ public class World3D implements GameScene.WorldView {
 
 	private void buildTokens(Level lv) {
 		buf.clear();
-		token(Dungeon.hero, heroColor());
-		for (Mob m : lv.mobs.toArray(new Mob[0])) token(m, hashColor(m.getClass().getName()));
+		if (models == null) models = new GltfModels(cam);
+		if (!models.place(Dungeon.hero)) token(Dungeon.hero, heroColor());
+		for (Mob m : lv.mobs.toArray(new Mob[0])) if (!models.place(m)) token(m, hashColor(m.getClass().getName()));
 		for (Plant p : lv.plants.valueList()) {
 			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
 			float fog = lv.heroFOV[p.pos] ? 1f : 0.42f, x = p.pos % lv.width(), z = p.pos / lv.width();

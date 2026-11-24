@@ -1,0 +1,10 @@
+{
+ "files": "hero_<Class>_t<tier>.glb, tier = Hero.tier(): 0 none, 1 cloth, 2 leather, 3 mail, 4 scale, 5 plate, 6 class armour. When the armour changes, swap the whole model.",
+ "skeleton": "17 bones (root, hips, spine, chest, head, upperarm/forearm/hand _L/_R, thigh/shin/foot _L/_R). All tiers of a class share one skeleton, so the same clips play on every tier.",
+ "clips": "idle, walk, attack, cast, operate, read, die - in every file; 30 fps; attack and cast hit at 50%; no root motion.",
+ "attach": "empties grip_R / grip_L (snap a held item's 'grip' here, matching axes), back (bow, cloak), head_top (hats).",
+ "style": "Chunky voxel (art/STYLE.md v3): voxels at 1/22 tile, ~25 voxels tall (1.14 tiles with hair, taller than the spec's 0.9: scale in the engine if needed), sprite colours, LIT materials (roughness 1). Light the scene with a warm key from the upper left in front plus a dim cool ambient; soft shadows help.",
+ "built_by": "art/heroes/chunky_<class>.py on chunky_hero.py (+ rig.py, voxel_char.py, hero.py)",
+ "rest_pose": "T-pose (arms straight out). Always play a clip (idle when nothing happens): every clip lowers the arms.",
+ "status": "All six heroes are v3 (chunky), with armour as a layer on the body (cloth 0.5 voxel thick, the rest 1). The Cleric's class armour has a glowing emblem (emissive map)."
+}

@@ -34,6 +34,7 @@ allprojects {
         google()
         mavenCentral()
         maven { url 'https://central.sonatype.com/repository/maven-snapshots/' }
+        maven { url 'https://jitpack.io' } // gdx-gltf (glTF model loader) is published there
     }
 
 }

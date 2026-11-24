@@ -6,4 +6,5 @@ java.sourceCompatibility = java.targetCompatibility = appJavaCompatibility
 dependencies {
     api project(':SPD-classes')
     implementation project(':services')
+    api "com.github.mgsx-dev.gdx-gltf:gltf:2.3.0" // loads the .glb models in assets3d/
 }
