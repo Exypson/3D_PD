@@ -188,19 +188,22 @@ public class World3D implements GameScene.WorldView {
 
 	private void buildTokens(Level lv) {
 		buf.clear();
-		if (!models.place(Dungeon.hero)) token(Dungeon.hero, heroColor());
-		for (Mob m : lv.mobs.toArray(new Mob[0])) if (!models.place(m)) token(m, hashColor(m.getClass().getName()));
+		modelled.clear();
+		if (models.place(Dungeon.hero)) modelled.add(Dungeon.hero); else token(Dungeon.hero, heroColor());
+		for (Mob m : lv.mobs.toArray(new Mob[0])) {
+			if (models.place(m)) modelled.add(m); else token(m, hashColor(m.getClass().getName()));
+		}
 		for (Trap tr : lv.traps.valueList()) {
 			if (!tr.visible || (!lv.visited[tr.pos] && !lv.mapped[tr.pos])) continue;
 			float fog = fog(lv, tr.pos), x = tr.pos % lv.width(), z = tr.pos / lv.width();
-			if (props.put(tr, Props.trapFile(tr), x, 0f, z, 0f, fog)) continue;
+			if (props.put(tr, Props.trapFile(tr), x, 0f, z, 0f, fog)) { modelled.add(tr); continue; }
 			float[] tc = tr.active ? TRAP_COLORS[Math.max(0, Math.min(8, tr.color))] : new float[]{0.35f, 0.35f, 0.35f};
 			top(x, z, 0.01f, 0.55f, tc[0] * fog, tc[1] * fog, tc[2] * fog);
 		}
 		for (Plant p : lv.plants.valueList()) {
 			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
 			float fog = fog(lv, p.pos), x = p.pos % lv.width(), z = p.pos / lv.width();
-			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog)) continue;
+			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog)) { modelled.add(p); continue; }
 			float[] c = hashColor(p.getClass().getName());
 			box(x, 0f, z, 0.05f, 0.22f, 0.05f, 0f, 0.25f * fog, 0.55f * fog, 0.25f * fog);
 			box(x, 0.22f, z, 0.16f, 0.1f, 0.16f, 0.785f, c[0] * fog, c[1] * fog, c[2] * fog);
@@ -212,7 +215,7 @@ public class World3D implements GameScene.WorldView {
 			boolean shop = h.type == Heap.Type.FOR_SALE;
 			// shop items stand on a price mat; h.sprite keys the mat since h keys the item
 			if ((!shop || props.put(h.sprite, "heaps/heap_FOR_SALE.glb", x, 0f, z, 0f, fog))
-					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog)) continue;
+					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog)) { modelled.add(h); continue; }
 			if (!lv.heroFOV[h.pos]) continue;
 			switch (h.type) {
 				case CHEST: case LOCKED_CHEST: case CRYSTAL_CHEST: box(x, 0f, z, 0.45f, 0.32f, 0.34f, 0f, 0.5f, 0.34f, 0.18f); break;
@@ -267,6 +270,7 @@ public class World3D implements GameScene.WorldView {
 
 	private final HashMap<Object, RenderedTextBlock> labels = new HashMap<>();
 	private final HashSet<Object> seen = new HashSet<>();
+	private final HashSet<Object> modelled = new HashSet<>(); // drawn as artist models this frame
 	private Group layer;
 	private final java.util.ArrayList<float[]> placed = new java.util.ArrayList<>();
 
@@ -318,6 +322,7 @@ public class World3D implements GameScene.WorldView {
 	}
 
 	private void place(Object key, String text, float centreX, float bottomY, int color) {
+		if (modelled.contains(key)) return; // its 3D model identifies it; only placeholders keep a name tag
 		RenderedTextBlock t = labels.get(key);
 		if (t == null) { t = PixelScene.renderTextBlock(text, 6); labels.put(key, t); layer.add(t); }
 		if (!text.equals(t.text())) t.text(text);
