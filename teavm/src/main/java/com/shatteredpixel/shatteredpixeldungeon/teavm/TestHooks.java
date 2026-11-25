@@ -71,6 +71,15 @@ final class TestHooks {
 	@JSBody(params = "f", script = "window.__spdPieces = f;")
 	private static native void exportPieces(Query f);
 
+	@JSBody(params = "f", script = "window.__spdPlaceholders = f;")
+	private static native void exportPlaceholders(Query f);
+
+	@JSBody(params = "f", script = "window.__spdRotate = f;")
+	private static native void exportRotate(NamedAction f);
+
+	@JSBody(params = "f", script = "window.__spdTap = f;")
+	private static native void exportTap(NamedAction f);
+
 	@JSBody(params = "f", script = "window.__spdTerrain = f;")
 	private static native void exportTerrain(NamedAction f);
 
@@ -104,6 +113,10 @@ final class TestHooks {
 			Game.switchScene(InterlevelScene.class);
 		}));
 		exportKitStats(World3D::kitCoverage);
+		exportPlaceholders(World3D::placeholders);
+		exportRotate(deg -> GameThreadListener.instance.post(() -> GameScene.worldView.rotate(Float.parseFloat(deg))));
+		// a tap on a cell, as the player does (walks there, attacks, picks up...)
+		exportTap(cell -> GameThreadListener.instance.post(() -> GameScene.handleCell(Integer.parseInt(cell))));
 		// terrain id painted on the nearest free tile, for checking every tile kit piece
 		exportTerrain(id -> GameThreadListener.instance.post(() -> {
 			int c = nearestFree(true);
@@ -155,11 +168,13 @@ final class TestHooks {
 				System.err.println("plant " + name + " failed: " + e);
 			}
 		}));
-		// cells with the given terrain id, comma separated
+		// cells with the given terrain id, comma separated ("5v": explored cells only)
 		exportCells(id -> {
 			StringBuilder sb = new StringBuilder();
+			boolean explored = id.endsWith("v");
+			int t = Integer.parseInt(id.replace("v", ""));
 			if (Dungeon.level != null) for (int c = 0; c < Dungeon.level.length(); c++) {
-				if (Dungeon.level.map[c] == Integer.parseInt(id)) sb.append(sb.length() == 0 ? "" : ",").append(c);
+				if (Dungeon.level.map[c] == t && (!explored || Dungeon.level.visited[c] || Dungeon.level.mapped[c])) sb.append(sb.length() == 0 ? "" : ",").append(c);
 			}
 			return sb.toString();
 		});

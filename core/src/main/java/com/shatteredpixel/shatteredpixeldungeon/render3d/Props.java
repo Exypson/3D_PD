@@ -43,10 +43,11 @@ final class Props {
 		this.models = models;
 	}
 
-	/** Draws key's model this frame; false while the file isn't available, so the caller keeps its placeholder. */
+	/** Draws key's model this frame. False when there is no model for it (the caller draws a placeholder); true while it
+	 *  downloads too, when nothing is drawn, so placeholders don't pop up and vanish again. */
 	boolean put(Object key, String file, float x, float y, float z, float yaw, float fog) {
 		SceneAsset a = file == null ? null : models.asset(file);
-		if (a == null) return false;
+		if (a == null) return file != null && !models.missing(file);
 		ModelInstance mi = live.get(key);
 		if (mi == null || !file.equals(liveFile.get(key))) {
 			mi = new ModelInstance(a.scene.model);

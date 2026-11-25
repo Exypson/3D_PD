@@ -294,7 +294,13 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 		play( zap );
 	}
 	
+	// the last turn's cells, for views that face characters in any direction (the 3D view)
+	public int turnFrom = -1, turnTarget = -1, turnCount = 0;
+
 	public void turnTo( int from, int to ) {
+		turnFrom = from;
+		turnTarget = to;
+		turnCount++;
 		int fx = from % Dungeon.level.width();
 		int tx = to % Dungeon.level.width();
 		if (tx > fx) {

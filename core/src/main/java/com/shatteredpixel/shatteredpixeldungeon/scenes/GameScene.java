@@ -169,6 +169,9 @@ public class GameScene extends PixelScene {
 		void worldMatrix( float[] out );
 		// a layer of 2D overlays (e.g. name tags), added to the world layers so it is drawn through that matrix
 		Group overlay();
+		// how far the view is turned around the map, in degrees (0: north is up, as in 2D); rotate() turns it further
+		default float yaw() { return 0; }
+		default void rotate( float degrees ) {}
 	}
 	public static WorldView worldView = null;
 	private final float[] savedWorldMatrix = new float[16];

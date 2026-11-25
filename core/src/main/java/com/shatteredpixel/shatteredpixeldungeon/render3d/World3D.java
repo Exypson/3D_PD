@@ -117,6 +117,7 @@ public class World3D implements GameScene.WorldView {
 		}
 
 		buildTokens(lv);
+		kit.prefetch(); // the rest of the region's tiles, queued behind what is on screen
 		updateLabels(lv);
 		dynamicMesh = upload(dynamicMesh);
 		dynamicVerts = buf.size / STRIDE;
@@ -155,6 +156,16 @@ public class World3D implements GameScene.WorldView {
 		return TileKit.active == null || Dungeon.level == null ? "no kit yet" : TileKit.active.coverage(Dungeon.level);
 	}
 
+	// test hook: what was drawn as a placeholder in the last frame (characters, props) and how many plain terrain cells
+	private static final java.util.ArrayList<String> standIns = new java.util.ArrayList<>();
+	private static int plainCells;
+
+	public static String placeholders() {
+		return "plainCells=" + plainCells + " standIns=" + standIns
+				+ " hero=" + (Dungeon.hero == null ? -1 : Dungeon.hero.pos) + " heroClips=" + GltfModels.heroClips
+				+ " yaw=" + (GameScene.worldView == null ? 0 : Math.round(GameScene.worldView.yaw()));
+	}
+
 	@Override
 	public int cellAt(float screenX, float screenY) {
 		Level lv = Dungeon.level;
@@ -189,34 +200,39 @@ public class World3D implements GameScene.WorldView {
 	private void buildTokens(Level lv) {
 		buf.clear();
 		modelled.clear();
+		standIns.clear();
 		if (models.place(Dungeon.hero)) modelled.add(Dungeon.hero); else token(Dungeon.hero, heroColor());
 		for (Mob m : lv.mobs.toArray(new Mob[0])) {
 			if (models.place(m)) modelled.add(m); else token(m, hashColor(m.getClass().getName()));
 		}
 		for (Trap tr : lv.traps.valueList()) {
-			if (!tr.visible || (!lv.visited[tr.pos] && !lv.mapped[tr.pos])) continue;
+			if (!tr.visible || (!lv.visited[tr.pos] && !lv.mapped[tr.pos])) { models.asset(Props.trapFile(tr)); continue; } // fetched ahead
 			float fog = fog(lv, tr.pos), x = tr.pos % lv.width(), z = tr.pos / lv.width();
 			if (props.put(tr, Props.trapFile(tr), x, 0f, z, 0f, fog)) { modelled.add(tr); continue; }
 			float[] tc = tr.active ? TRAP_COLORS[Math.max(0, Math.min(8, tr.color))] : new float[]{0.35f, 0.35f, 0.35f};
+			standIns.add("trap");
 			top(x, z, 0.01f, 0.55f, tc[0] * fog, tc[1] * fog, tc[2] * fog);
 		}
 		for (Plant p : lv.plants.valueList()) {
-			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
+			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) { models.asset(Props.plantFile(p)); continue; }
 			float fog = fog(lv, p.pos), x = p.pos % lv.width(), z = p.pos / lv.width();
 			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog)) { modelled.add(p); continue; }
 			float[] c = hashColor(p.getClass().getName());
+			standIns.add("plant");
 			box(x, 0f, z, 0.05f, 0.22f, 0.05f, 0f, 0.25f * fog, 0.55f * fog, 0.25f * fog);
 			box(x, 0.22f, z, 0.16f, 0.1f, 0.16f, 0.785f, c[0] * fog, c[1] * fog, c[2] * fog);
 		}
 		for (Heap h : lv.heaps.valueList()) {
-			if (h.sprite == null || !h.sprite.visible) continue; // shown once seen, also in the fog, as in 2D
+			if (h.sprite == null || !h.sprite.visible) { models.asset(models.heapFile(h)); continue; } // shown once seen, also in the fog, as in 2D
 			float fog = fog(lv, h.pos), x = h.pos % lv.width(), z = h.pos / lv.width();
 			float lift = Math.max(0f, (h.sprite.worldToCamera(h.pos).y - h.sprite.y) / 16f); // the toss when an item is dropped
 			boolean shop = h.type == Heap.Type.FOR_SALE;
+			if (models.heapFile(h) == null && models.itemIndexLoading()) { modelled.add(h); continue; } // its model isn't known yet
 			// shop items stand on a price mat; h.sprite keys the mat since h keys the item
 			if ((!shop || props.put(h.sprite, "heaps/heap_FOR_SALE.glb", x, 0f, z, 0f, fog))
 					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog)) { modelled.add(h); continue; }
 			if (!lv.heroFOV[h.pos]) continue;
+			standIns.add("heap:" + h.type + (h.peek() == null ? "" : ":" + h.peek().getClass().getSimpleName()));
 			switch (h.type) {
 				case CHEST: case LOCKED_CHEST: case CRYSTAL_CHEST: box(x, 0f, z, 0.45f, 0.32f, 0.34f, 0f, 0.5f, 0.34f, 0.18f); break;
 				case TOMB: box(x, 0f, z, 0.45f, 0.3f, 0.7f, 0f, 0.55f, 0.55f, 0.55f); break;
@@ -234,6 +250,7 @@ public class World3D implements GameScene.WorldView {
 	private void token(Char ch, float[] c) {
 		CharSprite s = ch.sprite;
 		if (s == null || !s.visible || !ch.isAlive()) return;
+		standIns.add(ch.getClass().getSimpleName());
 		float x = spriteX(s), z = spriteZ(s);
 		float k = Char.hasProp(ch, Char.Property.BOSS) ? 1.5f : (Char.hasProp(ch, Char.Property.LARGE) ? 1.25f : 1f);
 		float lift = ch.flying ? 0.3f : 0f;
@@ -343,15 +360,31 @@ public class World3D implements GameScene.WorldView {
 		float cx = (mc.scroll.x + mc.width / 2f) / 16f - 0.5f;
 		float cz = (mc.scroll.y + mc.height / 2f) / 16f - 0.5f;
 		float dist = Math.max(4f, mc.height / 16f * 0.95f);
-		float pitch = (float) Math.toRadians(58);
+		float pitch = (float) Math.toRadians(PITCH);
+		yaw += (yawTarget - yaw) * Math.min(1f, Game.elapsed * 12f); // eases a key press' 45 degree turn
+		double y = Math.toRadians(yaw);
+		float flat = dist * (float) Math.cos(pitch);
 		cam.viewportWidth = Game.width;
 		cam.viewportHeight = Game.height;
 		cam.near = 0.1f;
 		cam.far = 300f;
 		cam.up.set(0, 1, 0);
-		cam.position.set(cx, dist * (float) Math.sin(pitch), cz + dist * (float) Math.cos(pitch));
+		cam.position.set(cx + flat * (float) Math.sin(y), dist * (float) Math.sin(pitch), cz + flat * (float) Math.cos(y));
 		cam.lookAt(cx, 0, cz);
 		cam.update();
+	}
+
+	private static final float PITCH = 45f; // degrees above the floor
+	private float yaw, yawTarget;           // orbit around the view centre; 0 = north up, as in 2D
+
+	@Override
+	public float yaw() {
+		return yaw;
+	}
+
+	@Override
+	public void rotate(float degrees) {
+		yawTarget += degrees;
 	}
 
 	// ---------- terrain ----------
@@ -376,6 +409,7 @@ public class World3D implements GameScene.WorldView {
 
 	private void buildTerrain(Level lv) {
 		buf.clear();
+		plainCells = 0;
 		int w = lv.width();
 		float[] pal = REGION[Math.max(0, Math.min(4, (Dungeon.depth - 1) / 5))];
 		for (int c = 0; c < lv.length(); c++) {
@@ -387,6 +421,7 @@ public class World3D implements GameScene.WorldView {
 			float fr = pal[0] * chk * fog, fg = pal[1] * chk * fog, fb = pal[2] * chk * fog;
 
 			if (kit.has(c)) continue; // drawn from the artist's tile kit
+			plainCells++;
 			if ((flags & Terrain.PIT) != 0) continue; // chasm: leave a hole
 			if ((flags & Terrain.LIQUID) != 0) { top(x, z, -0.12f, 1f, pal[6] * fog, pal[7] * fog, pal[8] * fog); continue; }
 

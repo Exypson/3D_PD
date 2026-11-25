@@ -92,6 +92,7 @@ public final class GltfModels {
 	}
 
 	SceneAsset asset(String file) {
+		if (file == null) return null;
 		SceneAsset a = assets.get(file);
 		if (a != null || missing.contains(file)) return a;
 		int state = LazyAssets.state.apply("models3d/" + file); // the web build downloads models on demand
@@ -121,17 +122,24 @@ public final class GltfModels {
 		return "characters/char_" + n + "_alpha.glb";
 	}
 
-	/** True when this character is drawn as a model this frame (so World3D skips its token). */
+	// walk clips play this much slower, with the 20% slower steps (CharSprite.setMoveInterval in the web launcher)
+	static final float WALK_SPEED = 0.8f;
+	static int heroClips; // test hook: clips started on the hero, to check a walk doesn't restart on every tile
+
+	// per character: facing yaw, last position x/z, last turn seen, seconds since it last moved, yaw it is turning to
+	private final HashMap<Char, float[]> pose = new HashMap<>();
+
+	/** False when this character has no model (World3D then draws its token); true when drawn, or while its model downloads. */
 	boolean place(Char ch) {
 		CharSprite s = ch.sprite;
-		if (s == null || !s.visible) return false;
+		if (s == null) return false;
+		String file = fileFor(ch);
+		SceneAsset a = asset(file); // asked for even while out of sight, so it has arrived by the time it shows up
+		if (a == null && !(ch instanceof Hero) && missing.contains(file) && !file.endsWith("_alpha.glb")) a = asset(file = fileFor(ch)); // the _alpha name
+		if (!s.visible) return false;
 		String state = s.animState();
 		if (!ch.isAlive() && !state.equals("die")) return false; // a dying model stays until its sprite is gone
-		String file = fileFor(ch);
-		SceneAsset a = asset(file);
-		if (a == null && !(ch instanceof Hero) && missing.contains(file) && !file.endsWith("_alpha.glb")) a = asset(fileFor(ch)); // try the _alpha name
-		if (a == null) return false;
-		file = assets.containsValue(a) ? keyOf(a) : file;
+		if (a == null) return !missing.contains(file); // still downloading: show nothing rather than a placeholder that pops
 		Scene sc = live.get(ch);
 		if (sc == null || !file.equals(liveFile.get(ch))) {
 			if (sc != null) scenes.removeScene(sc);
@@ -141,25 +149,51 @@ public final class GltfModels {
 			liveFile.put(ch, file);
 			liveClip.remove(ch);
 		}
-		// SPD's own animation state picks the clip; walking is also shown while the sprite slides between tiles
-		String clip = s.isMoving && state.equals("idle") ? "walk" : state;
-		if (sc.modelInstance.getAnimation(clip) == null) clip = s.isMoving ? "walk" : "idle";
-		if (!clip.equals(liveClip.get(ch))) {
-			boolean once = clip.equals("attack") || clip.equals("cast") || clip.equals("operate") || clip.equals("die");
-			sc.animationController.setAnimation(clip, once ? 1 : -1);
+
+		// facing: where it walks, or the cell it last turned to (attacks, spells, shots, noticing someone)
+		float x = World3D.spriteX(s), z = World3D.spriteZ(s);
+		float[] p = pose.get(ch);
+		if (p == null) {
+			p = new float[]{0f, x, z, s.turnCount - 1, 1f, 0f};
+			pose.put(ch, p);
+		}
+		float dx = x - p[1], dz = z - p[2], d2 = dx * dx + dz * dz;
+		if (d2 > 1e-6f && d2 < 4f) { // (a longer jump is a teleport, not a step)
+			p[5] = (float) Math.toDegrees(Math.atan2(dx, dz));
+			p[4] = 0f;
+		} else {
+			p[4] += Game.elapsed;
+		}
+		boolean turned = s.turnCount != (int) p[3];
+		if (turned) {
+			int w = Dungeon.level.width();
+			if (s.turnFrom >= 0 && s.turnTarget >= 0 && s.turnFrom != s.turnTarget) {
+				p[5] = (float) Math.toDegrees(Math.atan2(s.turnTarget % w - s.turnFrom % w, s.turnTarget / w - s.turnFrom / w));
+			}
+			if (p[3] == s.turnCount - 1 && liveClip.get(ch) == null) p[0] = p[5]; // a new model starts out facing the right way
+			p[3] = s.turnCount;
+		}
+		p[1] = x;
+		p[2] = z;
+		float turn = ((p[5] - p[0]) % 360f + 540f) % 360f - 180f; // shortest way round
+		p[0] += turn * Math.min(1f, Game.elapsed * 14f);
+
+		// SPD's own animation state picks the clip. Walking is kept up across the short pause between steps, and clips
+		// blend into each other, so a walk doesn't restart on every tile.
+		boolean moving = s.isMoving || p[4] < 0.15f;
+		String clip = moving && state.equals("idle") ? "walk" : state;
+		if (sc.modelInstance.getAnimation(clip) == null) clip = moving ? "walk" : "idle";
+		boolean once = clip.equals("attack") || clip.equals("cast") || clip.equals("operate") || clip.equals("die");
+		String was = liveClip.get(ch);
+		if (!clip.equals(was) || (once && turned && !clip.equals("die"))) { // a repeated attack turns again: play it again
+			sc.animationController.animate(clip, once ? 1 : -1, clip.equals("walk") ? WALK_SPEED : 1f, null, was == null ? 0f : 0.15f);
+			if (ch instanceof Hero) heroClips++;
 			liveClip.put(ch, clip);
 		}
-		float yaw = s.flipHorizontal ? -45f : 45f; // three-quarter view, like the 2D facing
-		sc.modelInstance.transform.setToTranslation(World3D.spriteX(s), 0f, World3D.spriteZ(s))
-				.rotate(Vector3.Y, yaw).scale(CHAR_SCALE, CHAR_SCALE, CHAR_SCALE);
+		sc.modelInstance.transform.setToTranslation(x, 0f, z).rotate(Vector3.Y, p[0]).scale(CHAR_SCALE, CHAR_SCALE, CHAR_SCALE);
 		if (ch instanceof Hero) holdWeapon((Hero) ch, sc);
 		seen.add(ch);
 		return true;
-	}
-
-	private String keyOf(SceneAsset a) {
-		for (java.util.Map.Entry<String, SceneAsset> e : assets.entrySet()) if (e.getValue() == a) return e.getKey();
-		return null;
 	}
 
 	// ---------- the hero's weapon, held at grip_R ----------
@@ -175,6 +209,12 @@ public final class GltfModels {
 			case HEAP: case FOR_SALE: return h.peek() == null ? null : itemFile(h.peek().image());
 			default: return "heaps/heap_" + h.type.name() + ".glb";
 		}
+	}
+
+	/** True while items.json (the item model index) is still downloading. */
+	boolean itemIndexLoading() {
+		itemFile(-1); // reads the index once it has arrived
+		return itemFiles == null;
 	}
 
 	String itemFile(int image) {
@@ -229,6 +269,7 @@ public final class GltfModels {
 			scenes.removeScene(live.get(ch));
 			liveFile.remove(ch);
 			liveClip.remove(ch);
+			pose.remove(ch);
 			return true;
 		});
 		seen.clear();

@@ -57,6 +57,9 @@ final class TileKit {
 	private JsonValue kit;       // null while loading or when the region has no kit
 	private boolean noKit;
 	private Level level;
+	private boolean prefetched;
+	// a cell whose pieces are still downloading: drawn as nothing (not as plain geometry that would pop up and vanish)
+	private static final ModelInstance[] WAIT = new ModelInstance[0];
 	private ModelInstance[][] cells;
 	private long[] keys;
 	private float[] fogs;
@@ -80,22 +83,24 @@ final class TileKit {
 			cells = new ModelInstance[lv.length()][];
 			keys = new long[lv.length()];
 			fogs = new float[lv.length()];
+			prefetched = false;
 			version++;
 		}
 		if (kit == null && !noKit) {
 			int state = LazyAssets.state.apply(dir + "kit.json");
-			if (state == LazyAssets.MISSING) noKit = true;
+			if (state == LazyAssets.MISSING) { noKit = true; version++; }
 			if (state != LazyAssets.READY) return;
 			kit = new JsonReader().parse(Gdx.files.internal(dir + "kit.json")).get("terrain");
+			version++;
 		}
 		if (kit == null) return;
 		if (pieces.update(lv)) Arrays.fill(keys, Long.MIN_VALUE); // set pieces just appeared: re-sync the cells they cover
 		for (int c = 0; c < lv.length(); c++) {
 			if (!lv.visited[c] && !lv.mapped[c]) continue;
 			long key = key(lv, c);
-			if (cells[c] != null && keys[c] == key) continue;
+			if (cells[c] != null && cells[c] != WAIT && keys[c] == key) continue;
 			ModelInstance[] built = build(lv, c);
-			if (built == null && cells[c] == null) continue;
+			if (built == cells[c]) continue; // still nothing, or still waiting
 			cells[c] = built;
 			keys[c] = key;
 			fogs[c] = -1f;
@@ -103,8 +108,20 @@ final class TileKit {
 		}
 	}
 
-	/** True when the kit draws this cell. */
+	/** Asks for the region's whole kit (a few MB) once per level; call after the frame's visible things have asked for
+	 *  theirs, since downloads queue first come, first served. */
+	void prefetch() {
+		if (kit == null || prefetched) return;
+		for (JsonValue e : kit) {
+			for (String k : new String[]{"file", "edge", "edge_next_to_wall"}) if (e.has(k)) models.asset(path(e.getString(k)));
+			if (e.has("variants")) for (JsonValue v : e.get("variants")) models.asset(path(v.asString()));
+		}
+		prefetched = true;
+	}
+
+	/** True when the kit draws this cell (or will, once its pieces are in; also while the kit itself loads). */
 	boolean has(int c) {
+		if (kit == null && !noKit) return true;
 		return cells != null && c < cells.length && cells[c] != null;
 	}
 
@@ -128,15 +145,16 @@ final class TileKit {
 	// "drawn/visited" plus the terrain names of visited cells the kit doesn't draw
 	String coverage(Level lv) {
 		if (lv != level) return "not synced";
-		int visited = 0, drawn = 0;
+		int visited = 0, drawn = 0, waiting = 0;
 		java.util.TreeMap<String, Integer> missing = new java.util.TreeMap<>();
 		for (int c = 0; c < lv.length(); c++) {
 			if (!lv.visited[c] && !lv.mapped[c]) continue;
 			visited++;
-			if (has(c)) drawn++;
+			if (cells[c] == WAIT) waiting++;
+			else if (has(c)) drawn++;
 			else missing.merge(NAMES[lv.map[c]], 1, Integer::sum);
 		}
-		return (kit == null ? (noKit ? "no kit " : "kit loading ") : "") + drawn + "/" + visited + " " + missing;
+		return (kit == null ? (noKit ? "no kit " : "kit loading ") : "") + drawn + "/" + visited + (waiting > 0 ? " waiting " + waiting : "") + " " + missing;
 	}
 
 	static void dim(ModelInstance mi, float f) {
@@ -169,7 +187,7 @@ final class TileKit {
 		return e;
 	}
 
-	// null until every piece the cell needs has downloaded (or when the kit has nothing for this terrain)
+	// the cell's pieces; WAIT until they have all downloaded; null when the kit has nothing for this terrain
 	private ModelInstance[] build(Level lv, int c) {
 		if (pieces.replaces(c)) return new ModelInstance[0];
 		int t = lv.map[c];
@@ -181,15 +199,18 @@ final class TileKit {
 
 		// SPD's rule (DungeonTileSheet.getRaisedDoorTile): a wall below means the passage runs east-west
 		boolean sideways = e.has("rotate") && DungeonTileSheet.wallStitcheable(neighbour(lv, c, DIRS[2]));
-		if (!add(parts, variant(e, c), x, z, sideways ? 90f : 0f)) return null;
-
+		// every piece is asked for at once (not one after the other), so a cell's downloads queue together
+		String base = variant(e, c);
+		boolean ready = add(parts, base, x, z, sideways ? 90f : 0f), missing = models.missing(path(base));
 		if (e.has("edge")) for (int i = 0; i < 4; i++) {
 			int n = neighbour(lv, c, DIRS[i]);
 			if (entry(n) == e) continue; // same look (e.g. water next to water under a set piece): no edge
 			String file = e.has("edge_next_to_wall") && DungeonTileSheet.wallStitcheable(n) ? e.getString("edge_next_to_wall") : e.getString("edge");
-			if (!add(parts, file, x, z, EDGE_YAW[i])) return null;
+			ready &= add(parts, file, x, z, EDGE_YAW[i]);
+			missing |= models.missing(path(file));
 		}
-		return parts.toArray(new ModelInstance[0]);
+		if (missing) return null; // the kit names a file that isn't there: plain geometry
+		return ready ? parts.toArray(new ModelInstance[0]) : WAIT;
 	}
 
 	// the same alternates the 2D tile sheet picks (DungeonTileSheet.getVisualWithAlts): floors 47.5% alt1 / 5% alt2, others 50%
@@ -202,8 +223,12 @@ final class TileKit {
 		return e.getString("file");
 	}
 
+	private String path(String file) {
+		return dir.substring("models3d/".length()) + file;
+	}
+
 	private boolean add(ArrayList<ModelInstance> parts, String file, float x, float z, float yaw) {
-		SceneAsset a = models.asset(dir.substring("models3d/".length()) + file);
+		SceneAsset a = models.asset(path(file));
 		if (a == null) return false;
 		ModelInstance mi = new ModelInstance(a.scene.model);
 		mi.transform.setToTranslation(x, 0f, z).rotate(Vector3.Y, yaw);
