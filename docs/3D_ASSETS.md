@@ -390,6 +390,15 @@ These are hand-placed visuals in the code (`CustomTilemap` subclasses): boss are
 | WeakFloorRoom.HiddenWell | `setpiece_WeakFloorRoom.HiddenWell.glb` | `levels/rooms/special/WeakFloorRoom.java` |
 | Carpet | `setpiece_Carpet.glb` | `tiles/custom/Carpet.java` |
 
+**How the engine reads a set piece** (as implemented for the sewers; follow it for the other regions):
+
+- Each tile the 2D visual shows becomes one node of the model, placed on that tile; nodes sit at the origin, one tile in size. A translucent piece may carry an `_alpha` suffix (`setpiece_GooBossRoom.GooNest_alpha.glb`).
+- `Carpet`: one file per region (`setpiece_Carpet_<region>.glb`) with nodes `Carpet_0` .. `Carpet_15`; the number is the carpet's border mask (top 1, right 2, bottom 4, left 8).
+- `GooBossRoom.GooNest`: a 3 × 3 nine-slice, `GooNest_0` (top-left corner) .. `GooNest_4` (middle) .. `GooNest_8` (bottom-right), stretched over the nest's rectangle. Its 2D corner tiles are empty; the corner pieces fill them.
+- `RatKingRoom.RatKingRoomDeco`: nodes `RatKingRoom_Pillow` (centre) and `RatKingRoom_Statue` (each statue tile). `RatKingStatues` and `StatueOverhang` are only 2D layering of the same statues and need no model.
+- `SewerBossExitRoom.SewerExit`: one model with its origin on the exit tile; it replaces the two walls beside the exit and the grate row below it. `SewerExitOverhang` needs no model.
+- Tiles under a set piece (`CUSTOM_DECO`, `CUSTOM_DECO_EMPTY`) get the region's `EMPTY` floor, `CUSTOM_DECO_WTR` its `WATER`.
+
 ## 10. Traps
 
 Each trap is a plate in the floor, about 0.7 × 0.7, flush with the floor. Needs two looks: **active** and **used** (inactive, after triggering). The code gives each trap a colour and a symbol shape (`Trap.color`, `Trap.shape`) so players can tell them apart; keep that distinction readable in 3D.

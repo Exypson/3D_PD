@@ -22,7 +22,10 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.g3d.Material;
+import com.badlogic.gdx.graphics.g3d.RenderableProvider;
+import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.math.Vector3;
+import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.KindOfWeapon;
 import com.badlogic.gdx.utils.JsonValue;
 import com.badlogic.gdx.utils.JsonReader;
@@ -31,6 +34,8 @@ import com.badlogic.gdx.math.Matrix4;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.abilities.Ratmogrify;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.RatKing;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.watabou.noosa.Game;
 import com.watabou.utils.LazyAssets;
@@ -81,7 +86,12 @@ public final class GltfModels {
 		scenes.setAmbientLight(0.45f);
 	}
 
-	private SceneAsset asset(String file) {
+	/** True once asset(file) found the file doesn't exist. */
+	boolean missing(String file) {
+		return missing.contains(file);
+	}
+
+	SceneAsset asset(String file) {
 		SceneAsset a = assets.get(file);
 		if (a != null || missing.contains(file)) return a;
 		int state = LazyAssets.state.apply("models3d/" + file); // the web build downloads models on demand
@@ -104,6 +114,8 @@ public final class GltfModels {
 		}
 		String n = ch.getClass().getName();
 		n = n.substring(n.lastIndexOf('.') + 1).replace('$', '.');
+		// the Rat King's other look, as RatKingSprite picks it
+		if (ch instanceof RatKing && Dungeon.hero != null && Dungeon.hero.armorAbility instanceof Ratmogrify) n += "_Ratmogrify";
 		String plain = "characters/char_" + n + ".glb";
 		if (!missing.contains(plain)) return plain;
 		return "characters/char_" + n + "_alpha.glb";
@@ -157,7 +169,15 @@ public final class GltfModels {
 	private String weaponFile;
 	private final Matrix4 tmp = new Matrix4();
 
-	private String itemFile(int image) {
+	// what a heap shows: its container, or the top item as SPD's ItemSprite.view(Heap) does
+	String heapFile(Heap h) {
+		switch (h.type) {
+			case HEAP: case FOR_SALE: return h.peek() == null ? null : itemFile(h.peek().image());
+			default: return "heaps/heap_" + h.type.name() + ".glb";
+		}
+	}
+
+	String itemFile(int image) {
 		if (itemFiles == null) {
 			int state = LazyAssets.state.apply("models3d/items/items.json"); // downloaded on demand like the models
 			if (state == LazyAssets.PENDING) return null;
@@ -195,7 +215,14 @@ public final class GltfModels {
 		weaponFile = null;
 	}
 
-	/** Call once per frame after all place() calls: drops models of characters that are gone, animates and draws the rest. */
+	private final Array<RenderableProvider> frame = new Array<>();
+
+	/** Draws a static instance this frame only (tiles, traps, heaps...). */
+	void draw(RenderableProvider p) {
+		frame.add(p);
+	}
+
+	/** Call once per frame after all place() and draw() calls: drops models of characters that are gone, animates and draws the rest. */
 	void render() {
 		live.keySet().removeIf(ch -> {
 			if (seen.contains(ch)) return false;
@@ -207,7 +234,12 @@ public final class GltfModels {
 		seen.clear();
 		if (!weaponSeen) dropWeapon();
 		weaponSeen = false;
+		Array<RenderableProvider> all = scenes.getRenderableProviders();
+		int base = all.size;
+		all.addAll(frame);
 		scenes.update(Game.elapsed);
 		scenes.render();
+		all.truncate(base);
+		frame.clear();
 	}
 }

@@ -40,6 +40,11 @@ public abstract class CustomTilemap implements Bundlable {
 	protected Object texture;
 	protected Tilemap vis = null;
 
+	/** The tile this visual shows at (x, y) of its rectangle, -1 for none or before create(); used by the 3D view. */
+	public int tileAt(int x, int y) {
+		return vis == null ? -1 : vis.tileAt(x, y);
+	}
+
 	public void pos(int pos) {
 		pos( pos, Dungeon.level );
 	}

@@ -71,6 +71,11 @@ public class Tilemap extends Visual {
 		updated = new Rect();
 	}
 
+	/** The tile index at (x, y), -1 when there is none. */
+	public int tileAt( int x, int y ) {
+		return data == null || x < 0 || y < 0 || x >= mapWidth || x + mapWidth * y >= data.length ? -1 : data[x + mapWidth * y];
+	}
+
 	public void map( int[] data, int cols ) {
 
 		this.data = data;

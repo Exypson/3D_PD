@@ -85,6 +85,9 @@ public class World3D implements GameScene.WorldView {
 
 	private ShaderProgram shader;
 	private GltfModels models;
+	private TileKit kit;
+	private Props props;
+	private SetPieces pieces;
 	private Mesh terrainMesh, dynamicMesh;
 	private int terrainVerts, dynamicVerts;
 	private final FloatArray buf = new FloatArray(false, 1 << 16);
@@ -102,7 +105,9 @@ public class World3D implements GameScene.WorldView {
 			if (!shader.isCompiled()) throw new RuntimeException("3D shader: " + shader.getLog());
 		}
 
-		long h = stateHash(lv);
+		if (models == null) { models = new GltfModels(cam); pieces = new SetPieces(models); kit = new TileKit(models, pieces); props = new Props(models); }
+		kit.update(lv);
+		long h = stateHash(lv) * 31 + kit.version;
 		if (lv != builtFor || h != builtHash) {
 			buildTerrain(lv);
 			terrainMesh = upload(terrainMesh);
@@ -117,6 +122,8 @@ public class World3D implements GameScene.WorldView {
 		dynamicVerts = buf.size / STRIDE;
 
 		updateCamera(lv);
+		kit.draw(lv, cam);
+		pieces.draw(lv, cam);
 
 		GL20 gl = Gdx.gl;
 		gl.glViewport(0, 0, Gdx.graphics.getBackBufferWidth(), Gdx.graphics.getBackBufferHeight());
@@ -141,6 +148,11 @@ public class World3D implements GameScene.WorldView {
 		Quad.bindIndices();
 		Script.unuse();
 		NoosaScript.get().resetCamera();
+	}
+
+	/** Test hook: how much of the current level the artist tile kit draws. */
+	public static String kitCoverage() {
+		return TileKit.active == null || Dungeon.level == null ? "no kit yet" : TileKit.active.coverage(Dungeon.level);
 	}
 
 	@Override
@@ -176,19 +188,32 @@ public class World3D implements GameScene.WorldView {
 
 	private void buildTokens(Level lv) {
 		buf.clear();
-		if (models == null) models = new GltfModels(cam);
 		if (!models.place(Dungeon.hero)) token(Dungeon.hero, heroColor());
 		for (Mob m : lv.mobs.toArray(new Mob[0])) if (!models.place(m)) token(m, hashColor(m.getClass().getName()));
+		for (Trap tr : lv.traps.valueList()) {
+			if (!tr.visible || (!lv.visited[tr.pos] && !lv.mapped[tr.pos])) continue;
+			float fog = fog(lv, tr.pos), x = tr.pos % lv.width(), z = tr.pos / lv.width();
+			if (props.put(tr, Props.trapFile(tr), x, 0f, z, 0f, fog)) continue;
+			float[] tc = tr.active ? TRAP_COLORS[Math.max(0, Math.min(8, tr.color))] : new float[]{0.35f, 0.35f, 0.35f};
+			top(x, z, 0.01f, 0.55f, tc[0] * fog, tc[1] * fog, tc[2] * fog);
+		}
 		for (Plant p : lv.plants.valueList()) {
 			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) continue;
-			float fog = lv.heroFOV[p.pos] ? 1f : 0.42f, x = p.pos % lv.width(), z = p.pos / lv.width();
+			float fog = fog(lv, p.pos), x = p.pos % lv.width(), z = p.pos / lv.width();
+			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog)) continue;
 			float[] c = hashColor(p.getClass().getName());
 			box(x, 0f, z, 0.05f, 0.22f, 0.05f, 0f, 0.25f * fog, 0.55f * fog, 0.25f * fog);
 			box(x, 0.22f, z, 0.16f, 0.1f, 0.16f, 0.785f, c[0] * fog, c[1] * fog, c[2] * fog);
 		}
 		for (Heap h : lv.heaps.valueList()) {
-			if (h.sprite == null || !h.sprite.visible || !lv.heroFOV[h.pos]) continue;
-			float x = h.pos % lv.width(), z = h.pos / lv.width();
+			if (h.sprite == null || !h.sprite.visible) continue; // shown once seen, also in the fog, as in 2D
+			float fog = fog(lv, h.pos), x = h.pos % lv.width(), z = h.pos / lv.width();
+			float lift = Math.max(0f, (h.sprite.worldToCamera(h.pos).y - h.sprite.y) / 16f); // the toss when an item is dropped
+			boolean shop = h.type == Heap.Type.FOR_SALE;
+			// shop items stand on a price mat; h.sprite keys the mat since h keys the item
+			if ((!shop || props.put(h.sprite, "heaps/heap_FOR_SALE.glb", x, 0f, z, 0f, fog))
+					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog)) continue;
+			if (!lv.heroFOV[h.pos]) continue;
 			switch (h.type) {
 				case CHEST: case LOCKED_CHEST: case CRYSTAL_CHEST: box(x, 0f, z, 0.45f, 0.32f, 0.34f, 0f, 0.5f, 0.34f, 0.18f); break;
 				case TOMB: box(x, 0f, z, 0.45f, 0.3f, 0.7f, 0f, 0.55f, 0.55f, 0.55f); break;
@@ -199,6 +224,7 @@ public class World3D implements GameScene.WorldView {
 				}
 			}
 		}
+		props.endFrame();
 	}
 
 	// a plain pawn: base, body, head. Bosses and large creatures are bigger, flyers float over their base.
@@ -333,6 +359,11 @@ public class World3D implements GameScene.WorldView {
 		return h;
 	}
 
+	// 2D fog of war as a brightness: in view, explored, or only mapped
+	static float fog(Level lv, int c) {
+		return lv.heroFOV[c] ? 1f : (lv.visited[c] ? 0.42f : 0.28f);
+	}
+
 	private static boolean isTallBlock(int t) {
 		return t == Terrain.WALL || t == Terrain.WALL_DECO || t == Terrain.SECRET_DOOR || t == Terrain.BOOKSHELF
 				|| t == Terrain.MINE_CRYSTAL || t == Terrain.MINE_BOULDER;
@@ -344,12 +375,13 @@ public class World3D implements GameScene.WorldView {
 		float[] pal = REGION[Math.max(0, Math.min(4, (Dungeon.depth - 1) / 5))];
 		for (int c = 0; c < lv.length(); c++) {
 			if (!lv.visited[c] && !lv.mapped[c]) continue;
-			float fog = lv.heroFOV[c] ? 1f : (lv.visited[c] ? 0.42f : 0.28f);
+			float fog = fog(lv, c);
 			int t = lv.map[c], flags = Terrain.flags[t];
 			float x = c % w, z = c / w;
 			float chk = ((c % w + c / w) & 1) == 0 ? 1f : 0.93f; // faint checker so the floor reads as tiles
 			float fr = pal[0] * chk * fog, fg = pal[1] * chk * fog, fb = pal[2] * chk * fog;
 
+			if (kit.has(c)) continue; // drawn from the artist's tile kit
 			if ((flags & Terrain.PIT) != 0) continue; // chasm: leave a hole
 			if ((flags & Terrain.LIQUID) != 0) { top(x, z, -0.12f, 1f, pal[6] * fog, pal[7] * fog, pal[8] * fog); continue; }
 
@@ -412,13 +444,6 @@ public class World3D implements GameScene.WorldView {
 					top(x, z, 0f, 1f, fr * 1.15f, fg * 1.15f, fb * 1.15f);
 					if (t == Terrain.PEDESTAL) box(x, 0f, z, 0.5f, 0.3f, 0.5f, 0f, 0.6f * fog, 0.58f * fog, 0.5f * fog);
 					break;
-				case Terrain.TRAP: case Terrain.INACTIVE_TRAP: {
-					top(x, z, 0f, 1f, fr, fg, fb);
-					Trap trap = lv.traps.get(c);
-					float[] tc = t == Terrain.INACTIVE_TRAP || trap == null ? new float[]{0.35f, 0.35f, 0.35f} : TRAP_COLORS[Math.max(0, Math.min(8, trap.color))];
-					top(x, z, 0.01f, 0.55f, tc[0] * fog, tc[1] * fog, tc[2] * fog);
-					break;
-				}
 				default:
 					if ((flags & Terrain.SOLID) != 0) { // other solid decorations: a low block
 						top(x, z, 0f, 1f, fr, fg, fb);
