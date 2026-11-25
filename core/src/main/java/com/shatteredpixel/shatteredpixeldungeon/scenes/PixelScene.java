@@ -142,7 +142,7 @@ public class PixelScene extends Scene {
 		}
 
 		minZoom = 1;
-		maxZoom = defaultZoom * 2;
+		maxZoom = defaultZoom * (GameScene.worldView != null ? 4 : 2); // the 3D view can come in closer
 
 		Camera.reset( new PixelCamera( defaultZoom ) );
 

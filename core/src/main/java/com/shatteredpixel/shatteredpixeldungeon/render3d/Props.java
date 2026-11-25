@@ -22,6 +22,7 @@ import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.math.Vector3;
 import com.shatteredpixel.shatteredpixeldungeon.levels.traps.Trap;
 import com.shatteredpixel.shatteredpixeldungeon.plants.Plant;
+import com.watabou.noosa.Game;
 import net.mgsx.gltf.scene3d.scene.SceneAsset;
 
 import java.util.HashMap;
@@ -37,6 +38,7 @@ final class Props {
 	private final HashMap<Object, ModelInstance> live = new HashMap<>();
 	private final HashMap<Object, String> liveFile = new HashMap<>();
 	private final HashMap<Object, Float> liveFog = new HashMap<>();
+	private final HashMap<Object, Float> liveSquash = new HashMap<>();
 	private final HashSet<Object> seen = new HashSet<>();
 
 	Props(GltfModels models) {
@@ -46,6 +48,12 @@ final class Props {
 	/** Draws key's model this frame. False when there is no model for it (the caller draws a placeholder); true while it
 	 *  downloads too, when nothing is drawn, so placeholders don't pop up and vanish again. */
 	boolean put(Object key, String file, float x, float y, float z, float yaw, float fog) {
+		return put(key, file, x, y, z, yaw, fog, 0f, false);
+	}
+
+	/** As above, scaled up so its footprint is about size tiles across (0: as modelled), and shrunk to about half while
+	 *  squashed (someone stands on its tile), easing between the two. */
+	boolean put(Object key, String file, float x, float y, float z, float yaw, float fog, float size, boolean squashed) {
 		SceneAsset a = file == null ? null : models.asset(file);
 		if (a == null) return file != null && !models.missing(file);
 		ModelInstance mi = live.get(key);
@@ -60,7 +68,17 @@ final class Props {
 			TileKit.dim(mi, fog);
 			liveFog.put(key, fog);
 		}
-		mi.transform.setToTranslation(x, y, z).rotate(Vector3.Y, yaw);
+		float scale = 1f;
+		if (size > 0f) {
+			float across = models.footprint(file);
+			if (across > 0f) scale = Math.max(1f, Math.min(3f, size / across)); // small art grows, big art stays
+			Float sq = liveSquash.get(key);
+			float now = sq == null ? 1f : sq, target = squashed ? 0.5f : 1f;
+			now += (target - now) * Math.min(1f, Game.elapsed * 8f);
+			liveSquash.put(key, now);
+			scale *= now;
+		}
+		mi.transform.setToTranslation(x, y, z).rotate(Vector3.Y, yaw).scale(scale, scale, scale);
 		models.draw(mi);
 		seen.add(key);
 		return true;
@@ -71,6 +89,7 @@ final class Props {
 		live.keySet().retainAll(seen);
 		liveFile.keySet().retainAll(seen);
 		liveFog.keySet().retainAll(seen);
+		liveSquash.keySet().retainAll(seen);
 		seen.clear();
 	}
 

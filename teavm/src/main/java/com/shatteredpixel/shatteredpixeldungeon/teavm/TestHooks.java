@@ -74,9 +74,6 @@ final class TestHooks {
 	@JSBody(params = "f", script = "window.__spdPlaceholders = f;")
 	private static native void exportPlaceholders(Query f);
 
-	@JSBody(params = "f", script = "window.__spdRotate = f;")
-	private static native void exportRotate(NamedAction f);
-
 	@JSBody(params = "f", script = "window.__spdTap = f;")
 	private static native void exportTap(NamedAction f);
 
@@ -114,7 +111,6 @@ final class TestHooks {
 		}));
 		exportKitStats(World3D::kitCoverage);
 		exportPlaceholders(World3D::placeholders);
-		exportRotate(deg -> GameThreadListener.instance.post(() -> GameScene.worldView.rotate(Float.parseFloat(deg))));
 		// a tap on a cell, as the player does (walks there, attacks, picks up...)
 		exportTap(cell -> GameThreadListener.instance.post(() -> GameScene.handleCell(Integer.parseInt(cell))));
 		// terrain id painted on the nearest free tile, for checking every tile kit piece
@@ -188,9 +184,12 @@ final class TestHooks {
 	private static void drop(String name) {
 		if (Dungeon.hero == null || Dungeon.level == null) return;
 		try {
+			int at = name.indexOf('#'); // "Gold#123": onto that cell, as when an item is dropped there
+			int cell = at < 0 ? -1 : Integer.parseInt(name.substring(at + 1));
+			if (at >= 0) name = name.substring(0, at);
 			String[] parts = name.split("@"); // "Gold@CHEST": a heap of that type
 			Item item = (Item) Reflection.newInstanceUnhandled(Reflection.forNameUnhandled("com.shatteredpixel.shatteredpixeldungeon.items." + parts[0]));
-			int best = nearestFree(true);
+			int best = cell >= 0 ? cell : nearestFree(true);
 			if (best == -1) return;
 			Heap heap = Dungeon.level.drop(item, best);
 			if (parts.length > 1) { heap.type = Heap.Type.valueOf(parts[1]); heap.sprite.view(heap); }

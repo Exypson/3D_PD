@@ -1001,6 +1001,8 @@ public abstract class Level implements Bundlable {
 		updateOpenSpace(cell);
 	}
 	
+	public static final int MAX_HEAP_ITEMS = 4;
+
 	public Heap drop( Item item, int cell ) {
 
 		if (item == null || Challenges.isItemBlocked(item)){
@@ -1037,6 +1039,20 @@ public abstract class Level implements Bundlable {
 			} while (!passable[n] && !avoid[n]);
 			return drop( item, n );
 			
+		} else if (heap.type == Heap.Type.HEAP && heap.size() >= MAX_HEAP_ITEMS && Dungeon.level == this
+				&& ShatteredPixelDungeon.scene() instanceof GameScene) {
+			// a pile holds at most 4 items; more roll off onto a random neighbouring tile that has room
+			// (only in play: level generation keeps SPD's own results for a seed)
+			for (int tries = 0; tries < 16; tries++) {
+				int n = cell + PathFinder.NEIGHBOURS8[Random.Int( 8 )];
+				Heap other = heaps.get( n );
+				if (n >= 0 && n < length() && passable[n] && !solid[n]
+						&& (other == null || (other.type == Heap.Type.HEAP && other.size() < MAX_HEAP_ITEMS))) {
+					return drop( item, n );
+				}
+			}
+			heap.drop(item); // nowhere to roll to: keep it here
+
 		} else {
 			heap.drop(item);
 		}

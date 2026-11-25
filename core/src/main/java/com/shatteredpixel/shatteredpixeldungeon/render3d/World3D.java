@@ -28,6 +28,7 @@ import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.collision.Ray;
 import com.badlogic.gdx.utils.FloatArray;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
@@ -44,6 +45,7 @@ import com.watabou.glwrap.Blending;
 import com.watabou.glwrap.Quad;
 import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
+import com.watabou.utils.PointF;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.NoosaScript;
 
@@ -84,6 +86,7 @@ public class World3D implements GameScene.WorldView {
 			{0.6f, 0.35f, 0.85f}, {0.9f, 0.9f, 0.9f}, {0.55f, 0.55f, 0.55f}, {0.15f, 0.15f, 0.15f}};
 
 	private ShaderProgram shader;
+	private final float[] tmpPos = new float[2];
 	private GltfModels models;
 	private TileKit kit;
 	private Props props;
@@ -137,8 +140,9 @@ public class World3D implements GameScene.WorldView {
 		shader.bind();
 		shader.setUniformMatrix("u_proj", cam.combined);
 		CharSprite hs = Dungeon.hero.sprite;
-		shader.setUniformf("u_hero", hs != null ? spriteX(hs) : Dungeon.hero.pos % lv.width(), 0f,
-				hs != null ? spriteZ(hs) : Dungeon.hero.pos / lv.width());
+		if (hs != null) charPos(Dungeon.hero, tmpPos);
+		shader.setUniformf("u_hero", hs != null ? tmpPos[0] : Dungeon.hero.pos % lv.width(), 0f,
+				hs != null ? tmpPos[1] : Dungeon.hero.pos / lv.width());
 		if (terrainVerts > 0) terrainMesh.render(shader, GL20.GL_TRIANGLES, 0, terrainVerts);
 		if (dynamicVerts > 0) dynamicMesh.render(shader, GL20.GL_TRIANGLES, 0, dynamicVerts);
 		models.render(); // artist models (gdx-gltf), same depth buffer
@@ -162,8 +166,7 @@ public class World3D implements GameScene.WorldView {
 
 	public static String placeholders() {
 		return "plainCells=" + plainCells + " standIns=" + standIns
-				+ " hero=" + (Dungeon.hero == null ? -1 : Dungeon.hero.pos) + " heroClips=" + GltfModels.heroClips
-				+ " yaw=" + (GameScene.worldView == null ? 0 : Math.round(GameScene.worldView.yaw()));
+				+ " hero=" + (Dungeon.hero == null ? -1 : Dungeon.hero.pos) + " heroClips=" + GltfModels.heroClips;
 	}
 
 	@Override
@@ -181,15 +184,26 @@ public class World3D implements GameScene.WorldView {
 	private final Matrix4 floorMap = new Matrix4(), projected = new Matrix4();
 
 	@Override
+	public void overheadMatrix(float[] out) {
+		// SPD draws these just above a sprite's head, which in 2D is ~0.56 tiles north of its cell: lift the plane to head
+		// height and shift it back south by that much, so they hang over the model
+		worldMatrix(out, 1.1f, 1.06f);
+	}
+
+	@Override
 	public void worldMatrix(float[] out) {
+		worldMatrix(out, 0.02f, 0f); // just above the floor so effects aren't hidden in it
+	}
+
+	private void worldMatrix(float[] out, float lift, float south) {
 		// 2D world pixel (px, py) -> 3D point (px/16 - 0.5, lift, py/16 - 0.5): the same cell centres the terrain uses
 		float[] v = floorMap.val;
 		java.util.Arrays.fill(v, 0f);
 		v[Matrix4.M00] = 1f / 16f;
 		v[Matrix4.M21] = 1f / 16f;
 		v[Matrix4.M03] = -0.5f;
-		v[Matrix4.M13] = 0.02f; // just above the floor so effects aren't hidden in it
-		v[Matrix4.M23] = -0.5f;
+		v[Matrix4.M13] = lift;
+		v[Matrix4.M23] = -0.5f + south;
 		v[Matrix4.M33] = 1f;
 		projected.set(cam.combined).mul(floorMap);
 		System.arraycopy(projected.val, 0, out, 0, 16);
@@ -216,7 +230,7 @@ public class World3D implements GameScene.WorldView {
 		for (Plant p : lv.plants.valueList()) {
 			if (!lv.visited[p.pos] && !lv.mapped[p.pos]) { models.asset(Props.plantFile(p)); continue; }
 			float fog = fog(lv, p.pos), x = p.pos % lv.width(), z = p.pos / lv.width();
-			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog)) { modelled.add(p); continue; }
+			if (props.put(p, Props.plantFile(p), x, 0f, z, 0f, fog, PLANT_SIZE, false)) { modelled.add(p); continue; }
 			float[] c = hashColor(p.getClass().getName());
 			standIns.add("plant");
 			box(x, 0f, z, 0.05f, 0.22f, 0.05f, 0f, 0.25f * fog, 0.55f * fog, 0.25f * fog);
@@ -230,7 +244,8 @@ public class World3D implements GameScene.WorldView {
 			if (models.heapFile(h) == null && models.itemIndexLoading()) { modelled.add(h); continue; } // its model isn't known yet
 			// shop items stand on a price mat; h.sprite keys the mat since h keys the item
 			if ((!shop || props.put(h.sprite, "heaps/heap_FOR_SALE.glb", x, 0f, z, 0f, fog))
-					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog)) { modelled.add(h); continue; }
+					&& props.put(h, models.heapFile(h), x, lift + (shop ? 0.07f : 0f), z, 0f, fog, shop ? 0.45f : ITEM_SIZE,
+							Actor.findChar(h.pos) != null)) { modelled.add(h); continue; } // shrinks while someone stands on it
 			if (!lv.heroFOV[h.pos]) continue;
 			standIns.add("heap:" + h.type + (h.peek() == null ? "" : ":" + h.peek().getClass().getSimpleName()));
 			switch (h.type) {
@@ -251,7 +266,8 @@ public class World3D implements GameScene.WorldView {
 		CharSprite s = ch.sprite;
 		if (s == null || !s.visible || !ch.isAlive()) return;
 		standIns.add(ch.getClass().getSimpleName());
-		float x = spriteX(s), z = spriteZ(s);
+		charPos(ch, tmpPos);
+		float x = tmpPos[0], z = tmpPos[1];
 		float k = Char.hasProp(ch, Char.Property.BOSS) ? 1.5f : (Char.hasProp(ch, Char.Property.LARGE) ? 1.25f : 1f);
 		float lift = ch.flying ? 0.3f : 0f;
 		box(x, 0f, z, 0.55f * k, 0.05f, 0.55f * k, 0f, c[0] * 0.35f, c[1] * 0.35f, c[2] * 0.35f);
@@ -359,33 +375,38 @@ public class World3D implements GameScene.WorldView {
 		Camera mc = Camera.main;
 		float cx = (mc.scroll.x + mc.width / 2f) / 16f - 0.5f;
 		float cz = (mc.scroll.y + mc.height / 2f) / 16f - 0.5f;
-		float dist = Math.max(4f, mc.height / 16f * 0.95f);
+		CharSprite hs = Dungeon.hero.sprite;
+		if (hs != null && mc.followTarget() == hs) {
+			// following the hero: glide after his model itself, without SPD's dead zone (which holds still, then lurches)
+			charPos(Dungeon.hero, tmpPos);
+			float tx = tmpPos[0] + mc.centerOffset.x / 16f, tz = tmpPos[1] + mc.centerOffset.y / 16f;
+			if (!following || Math.abs(tx - camX) + Math.abs(tz - camZ) > 6f) { camX = tx; camZ = tz; } // new level, teleport
+			float k = Math.min(1f, Game.elapsed * 8f);
+			camX += (tx - camX) * k;
+			camZ += (tz - camZ) * k;
+			following = true;
+		} else { // dragged away, or panning to something: SPD's camera decides
+			camX = cx;
+			camZ = cz;
+			following = false;
+		}
+		float dist = Math.max(1.5f, mc.height / 16f * 0.95f);
 		float pitch = (float) Math.toRadians(PITCH);
-		yaw += (yawTarget - yaw) * Math.min(1f, Game.elapsed * 12f); // eases a key press' 45 degree turn
-		double y = Math.toRadians(yaw);
-		float flat = dist * (float) Math.cos(pitch);
 		cam.viewportWidth = Game.width;
 		cam.viewportHeight = Game.height;
 		cam.near = 0.1f;
 		cam.far = 300f;
 		cam.up.set(0, 1, 0);
-		cam.position.set(cx + flat * (float) Math.sin(y), dist * (float) Math.sin(pitch), cz + flat * (float) Math.cos(y));
-		cam.lookAt(cx, 0, cz);
+		cam.position.set(camX, dist * (float) Math.sin(pitch), camZ + dist * (float) Math.cos(pitch));
+		cam.lookAt(camX, 0, camZ);
 		cam.update();
 	}
 
 	private static final float PITCH = 45f; // degrees above the floor
-	private float yaw, yawTarget;           // orbit around the view centre; 0 = north up, as in 2D
-
-	@Override
-	public float yaw() {
-		return yaw;
-	}
-
-	@Override
-	public void rotate(float degrees) {
-		yawTarget += degrees;
-	}
+	// footprints in tiles that small item and plant art is scaled up to, to stay readable (characters are ~0.6 wide)
+	private static final float ITEM_SIZE = 0.6f, PLANT_SIZE = 0.5f;
+	private float camX, camZ;               // where the camera looks
+	private boolean following;
 
 	// ---------- terrain ----------
 
@@ -514,8 +535,16 @@ public class World3D implements GameScene.WorldView {
 	// ---------- characters and items ----------
 
 
-	static float spriteX(CharSprite s) { return (s.x + s.width() / 2f) / 16f - 0.5f; }
-	static float spriteZ(CharSprite s) { return (s.y + s.height()) / 16f - 1f; }
+	// Where a character stands: the centre of its cell, plus how far its sprite still is from resting there (a step or
+	// a jump in progress). Not the sprite position itself: 2D sprites are drawn raised (perspectiveRaise), which would
+	// put every model part of a tile north of where it is.
+	static void charPos(Char ch, float[] out) {
+		CharSprite s = ch.sprite;
+		int w = Dungeon.level.width();
+		PointF rest = s.worldToCamera(ch.pos);
+		out[0] = ch.pos % w + (s.x - rest.x) / 16f;
+		out[1] = ch.pos / w + (s.y - rest.y) / 16f;
+	}
 
 	// ---------- geometry primitives (two triangles per face, non-indexed) ----------
 

@@ -61,15 +61,11 @@ public class KeyBindings {
 
 	public static boolean bindingKey = false;
 
-	// keys that reach the game's key listeners without a binding (e.g. the 3D view's camera turn keys)
-	public static final java.util.HashSet<Integer> passThrough = new java.util.HashSet<>();
-
 	public static boolean isKeyBound(int keyCode){
 		if (keyCode < 0 || (keyCode > 255 && keyCode < 1000)){
 			return false;
 		}
 		return bindingKey
-				|| passThrough.contains( keyCode )
 				|| bindings.containsKey( keyCode )
 				|| controllerBindings.containsKey( keyCode )
 				|| hardBindings.containsKey( keyCode );

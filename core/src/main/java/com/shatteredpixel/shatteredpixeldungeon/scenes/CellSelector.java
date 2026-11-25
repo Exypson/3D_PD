@@ -21,7 +21,6 @@
 
 package com.shatteredpixel.shatteredpixeldungeon.scenes;
 
-import com.badlogic.gdx.Input;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.SPDAction;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
@@ -180,24 +179,10 @@ public class CellSelector extends ScrollArea {
 	private PointerEvent another;
 	private float startZoom;
 	private float startSpan;
-	private float lastAngle; // the two fingers' angle, for turning the 3D view
-
-	private static float angle( PointF a, PointF b ) {
-		return (float)Math.toDegrees( Math.atan2( b.y - a.y, b.x - a.x ) );
-	}
-
-	// a screen-space vector turned to match the 3D view's rotation (unchanged in 2D)
-	private static PointF toMap( PointF d ) {
-		if (GameScene.worldView == null) return d;
-		double r = Math.toRadians( GameScene.worldView.yaw() );
-		float c = (float)Math.cos( r ), s = (float)Math.sin( r );
-		return new PointF( d.x * c + d.y * s, -d.x * s + d.y * c );
-	}
 	
 	@Override
 	protected void onPointerDown( PointerEvent event ) {
 		camera.edgeScroll.set(-1);
-		rotating = false;
 		if (event != curEvent && another == null) {
 					
 			if (curEvent.type == PointerEvent.Type.UP) {
@@ -211,7 +196,6 @@ public class CellSelector extends ScrollArea {
 			another = event;
 			startSpan = PointF.distance( curEvent.current, another.current );
 			startZoom = camera.zoom;
-			lastAngle = angle( curEvent.current, another.current );
 
 			dragging = false;
 		} else if (event != curEvent) {
@@ -238,7 +222,6 @@ public class CellSelector extends ScrollArea {
 	}
 	
 	private boolean dragging = false;
-	private boolean rotating = false;
 	private PointF lastPos = new PointF();
 	
 	@Override
@@ -253,30 +236,15 @@ public class CellSelector extends ScrollArea {
 					zoom - (zoom % 0.1f),
 				PixelScene.maxZoom ) );
 
-			// twisting two fingers turns the 3D view
-			if (GameScene.worldView != null) {
-				float a = angle( curEvent.current, another.current );
-				float d = a - lastAngle;
-				if (d > 180) d -= 360;
-				if (d < -180) d += 360;
-				GameScene.worldView.rotate( d );
-				lastAngle = a;
-			}
-
 		} else {
 		
 			if (!dragging && PointF.distance( event.current, event.start ) > dragThreshold) {
 				
 				dragging = true;
-				// dragging with the right or middle mouse button turns the 3D view
-				rotating = GameScene.worldView != null && (event.button == PointerEvent.RIGHT || event.button == PointerEvent.MIDDLE);
 				lastPos.set( event.current );
 				
-			} else if (dragging && rotating) {
-				GameScene.worldView.rotate( (lastPos.x - event.current.x) * 0.4f ); // the floor under the pointer follows it
-				lastPos.set( event.current );
 			} else if (dragging) {
-				camera.shift( toMap( PointF.diff( lastPos, event.current ).invScale( camera.zoom ) ) );
+				camera.shift( PointF.diff( lastPos, event.current ).invScale( camera.zoom ) );
 				lastPos.set( event.current );
 			}
 		}
@@ -312,11 +280,6 @@ public class CellSelector extends ScrollArea {
 	private Signal.Listener<KeyEvent> keyListener = new Signal.Listener<KeyEvent>() {
 		@Override
 		public boolean onSignal(KeyEvent event) {
-			// , and . turn the 3D view by 45 degrees
-			if (GameScene.worldView != null && (event.code == Input.Keys.COMMA || event.code == Input.Keys.PERIOD)) {
-				if (event.pressed) GameScene.worldView.rotate( event.code == Input.Keys.COMMA ? -45 : 45 );
-				return true;
-			}
 			GameAction action = KeyBindings.getActionForKey( event );
 			if (!event.pressed){
 
@@ -446,12 +409,6 @@ public class CellSelector extends ScrollArea {
 		Point direction = new Point();
 		for (GameAction action : actions) {
 			direction.offset(directionFromAction(action));
-		}
-		// in the turned 3D view, up means up on screen: turn the step by the view's rotation, to the nearest of 8 directions
-		if (GameScene.worldView != null && !direction.isZero()) {
-			PointF d = toMap( new PointF( direction.x, direction.y ) );
-			double a = Math.round( Math.atan2( d.y, d.x ) / (Math.PI / 4) ) * (Math.PI / 4);
-			direction.set( (int)Math.round( Math.cos( a ) ), (int)Math.round( Math.sin( a ) ) );
 		}
 		int cell = Dungeon.hero.pos;
 		//clamp to adjacent values (-1 to +1)

@@ -169,11 +169,11 @@ public class GameScene extends PixelScene {
 		void worldMatrix( float[] out );
 		// a layer of 2D overlays (e.g. name tags), added to the world layers so it is drawn through that matrix
 		Group overlay();
-		// how far the view is turned around the map, in degrees (0: north is up, as in 2D); rotate() turns it further
-		default float yaw() { return 0; }
-		default void rotate( float degrees ) {}
+		// like worldMatrix, but onto a plane at head height: for health bars, emotes, floating text and name tags
+		default void overheadMatrix( float[] out ) { worldMatrix( out ); }
 	}
 	public static WorldView worldView = null;
+	private Group worldOverlay;
 	private final float[] savedWorldMatrix = new float[16];
 
 	@Override
@@ -182,20 +182,34 @@ public class GameScene extends PixelScene {
 			super.draw();
 			return;
 		}
-		worldView.render();
+		try {
+			worldView.render();
+		} catch (Throwable t) {
+			// a GPU or driver that can't run the 3D view: carry on in 2D rather than with a black screen, and say why
+			Game.reportException( t );
+			GLog.w( "3D view unavailable (" + t.getClass().getSimpleName() + ": " + t.getMessage() + "), showing 2D" );
+			worldView = null;
+			super.draw();
+			return;
+		}
 
-		// SPD's own 2D world effects (damage numbers, health bars, emotes, particles, gases, spells, targeting),
-		// drawn through a matrix that projects them onto the 3D floor. Terrain, sprites, walls and fog are replaced by the 3D view.
+		// SPD's own 2D world effects (particles, gases, spells, targeting) drawn through a matrix that projects them onto
+		// the 3D floor; health bars, emotes, floating text and name tags onto a plane at head height instead.
+		// Terrain, sprites, walls, fog and the wall decorations (e.g. drain drips) are replaced by the 3D view.
 		Camera main = Camera.main;
 		System.arraycopy( main.matrix, 0, savedWorldMatrix, 0, 16 );
-		worldView.worldMatrix( main.matrix );
-		NoosaScript.get().resetCamera();
-		for (int i = 0; i < length; i++) {
-			Gizmo g = members.get( i );
-			if (g != null && g.exists && g.isVisible() && g.camera() == main
-					&& g != terrain && g != heaps && g != mobs && g != raisedTerrain && g != walls
-					&& g != customWalls && g != wallBlocking && g != fog) {
-				g.draw();
+		for (int pass = 0; pass < 2; pass++) {
+			if (pass == 0) worldView.worldMatrix( main.matrix ); else worldView.overheadMatrix( main.matrix );
+			NoosaScript.get().resetCamera();
+			for (int i = 0; i < length; i++) {
+				Gizmo g = members.get( i );
+				if (g != null && g.exists && g.isVisible() && g.camera() == main
+						&& g != terrain && g != heaps && g != mobs && g != raisedTerrain && g != walls
+						&& g != customWalls && g != wallBlocking && g != fog && g != levelVisuals && g != levelWallVisuals) {
+					boolean overhead = g == healthIndicators || g == emoicons || g == statuses || g == worldOverlay
+							|| g instanceof TargetHealthIndicator;
+					if (overhead == (pass == 1)) g.draw();
+				}
 			}
 		}
 		System.arraycopy( savedWorldMatrix, 0, main.matrix, 0, 16 );
@@ -443,7 +457,7 @@ public class GameScene extends PixelScene {
 		add( new TargetHealthIndicator() );
 		
 		add( emoicons );
-		if (worldView != null) add( worldView.overlay() );
+		if (worldView != null) add( worldOverlay = worldView.overlay() );
 		
 		add( cellSelector = new CellSelector( tiles ) );
 

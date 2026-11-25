@@ -9,10 +9,9 @@ import com.github.xpenatan.gdx.teavm.backends.web.assetloader.AssetLoader;
 import com.github.xpenatan.gdx.teavm.backends.web.assetloader.AssetType;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.render3d.GltfModels;
 import com.shatteredpixel.shatteredpixeldungeon.render3d.World3D;
-import com.badlogic.gdx.Input;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
-import com.watabou.input.KeyBindings;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.watabou.noosa.Game;
@@ -51,11 +50,8 @@ public class WebLauncher {
 		// the dungeon is drawn in 3D unless the page is opened with ?2d
 		if (!Window.current().getLocation().getSearch().contains("2d")) {
 			GameScene.worldView = new World3D();
-			// 3D steps take 20% longer, so the walk animation can be seen (only the look: turns don't change)
-			CharSprite.setMoveInterval(CharSprite.DEFAULT_MOVE_INTERVAL / 0.8f);
-			// , and . turn the camera (handled in CellSelector); SPD only passes bound keys on, so let these through
-			KeyBindings.passThrough.add(Input.Keys.COMMA);
-			KeyBindings.passThrough.add(Input.Keys.PERIOD);
+			// 3D steps go at 64% of SPD's speed, so the walk animation can be seen (only the look: turns don't change)
+			CharSprite.setMoveInterval(CharSprite.DEFAULT_MOVE_INTERVAL / GltfModels.WALK_SPEED);
 		}
 		// 3D models, music and other languages are not in the startup download: fetch each file the first time the game asks for it
 		LazyAssets.state = path -> {

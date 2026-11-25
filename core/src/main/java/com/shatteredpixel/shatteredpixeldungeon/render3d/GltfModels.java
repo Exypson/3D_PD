@@ -22,6 +22,8 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.Camera;
 import com.badlogic.gdx.graphics.g3d.Material;
+import com.badlogic.gdx.graphics.g3d.ModelInstance;
+import com.badlogic.gdx.math.collision.BoundingBox;
 import com.badlogic.gdx.graphics.g3d.RenderableProvider;
 import com.badlogic.gdx.utils.Array;
 import com.badlogic.gdx.math.Vector3;
@@ -69,12 +71,12 @@ public final class GltfModels {
 
 	GltfModels(Camera cam) {
 		PBRShaderConfig cfg = PBRShaderProvider.createDefaultConfig();
-		cfg.numBones = 32;
+		cfg.numBones = 24; // region 1 models use up to 17; fewer bone uniforms suits stricter GPU drivers
 		cfg.numDirectionalLights = 1;
 		cfg.numPointLights = 0;
 		cfg.numSpotLights = 0;
 		com.badlogic.gdx.graphics.g3d.shaders.DepthShader.Config dcfg = PBRShaderProvider.createDefaultDepthConfig();
-		dcfg.numBones = 32;
+		dcfg.numBones = 24; // region 1 models use up to 17; fewer bone uniforms suits stricter GPU drivers
 		scenes = new SceneManager(PBRShaderProvider.createDefault(cfg), PBRShaderProvider.createDefaultDepth(dcfg));
 		scenes.setCamera(cam);
 		// STYLE.md: warm key light from the upper left in front, dim cool ambient
@@ -84,6 +86,20 @@ public final class GltfModels {
 		key.intensity = 2.2f;
 		scenes.environment.add(key);
 		scenes.setAmbientLight(0.45f);
+	}
+
+	private final HashMap<String, Float> footprints = new HashMap<>();
+
+	/** The widest horizontal extent of a loaded model, in tiles (0 if it isn't loaded). */
+	float footprint(String file) {
+		Float f = footprints.get(file);
+		if (f != null) return f;
+		SceneAsset a = asset(file);
+		if (a == null) return 0f;
+		BoundingBox bb = new ModelInstance(a.scene.model).calculateBoundingBox(new BoundingBox());
+		f = Math.max(bb.getWidth(), bb.getDepth());
+		footprints.put(file, f);
+		return f;
 	}
 
 	/** True once asset(file) found the file doesn't exist. */
@@ -122,8 +138,8 @@ public final class GltfModels {
 		return "characters/char_" + n + "_alpha.glb";
 	}
 
-	// walk clips play this much slower, with the 20% slower steps (CharSprite.setMoveInterval in the web launcher)
-	static final float WALK_SPEED = 0.8f;
+	// 3D steps and walk clips go at this fraction of SPD's speed (CharSprite.setMoveInterval in the web launcher)
+	public static final float WALK_SPEED = 0.64f;
 	static int heroClips; // test hook: clips started on the hero, to check a walk doesn't restart on every tile
 
 	// per character: facing yaw, last position x/z, last turn seen, seconds since it last moved, yaw it is turning to
@@ -151,7 +167,8 @@ public final class GltfModels {
 		}
 
 		// facing: where it walks, or the cell it last turned to (attacks, spells, shots, noticing someone)
-		float x = World3D.spriteX(s), z = World3D.spriteZ(s);
+		World3D.charPos(ch, tmpPos);
+		float x = tmpPos[0], z = tmpPos[1];
 		float[] p = pose.get(ch);
 		if (p == null) {
 			p = new float[]{0f, x, z, s.turnCount - 1, 1f, 0f};
@@ -202,6 +219,7 @@ public final class GltfModels {
 	private Scene weapon;
 	private String weaponFile;
 	private final Matrix4 tmp = new Matrix4();
+	private final float[] tmpPos = new float[2];
 
 	// what a heap shows: its container, or the top item as SPD's ItemSprite.view(Heap) does
 	String heapFile(Heap h) {
